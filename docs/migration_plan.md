@@ -23,29 +23,31 @@ automation-core==0.1.0
 قبل حذف أي reporting code من web/mobile/api، اعتمد المسار التالي:
 
 1. اترك توليد Allure الحالي كما هو.
-2. أضف خطوة ثانية تولد core product report من نفس `reports/allure-results`.
+2. أضف خطوة finalization مشتركة تولد core product report من نفس `reports/allure-results`.
 3. أضف enrichers صغيرة داخل كل framework تجمع metadata الخاصة بالدومين كـ dicts.
 4. بعد ثبات التقرير، حوّل dashboard القديم إلى wrapper أو redirect.
 
 مثال عام:
 
 ```python
-from automation_core.reporting import generate_reporting_product, run_report_from_allure_results
+from automation_core.reporting import finalize_allure_reporting
 
-report = run_report_from_allure_results(
-    "reports/allure-results",
+result = finalize_allure_reporting(
+    results_dir="reports/allure-results",
+    output_dir="reports/automation-report",
     run_id=run_id,
     project_name="web-automation-framework",
     framework="pytest-playwright",
     test_metadata=metadata_by_test,
-)
-
-generate_reporting_product(
-    report,
-    "reports/core-report",
     history_dir="reports/history",
+    report_kind="core",
+    open_report=False,
 )
 ```
+
+النتيجة `result` تحتوي `core.path`, `allure.status`, `warnings`, و`errors` حتى لا تحتاج الفريموركات parsing للـ stdout.
+إذا احتاج framework تعديل `RunReport` بتفصيل أكبر، يستطيع استخدام `run_report_from_allure_results(...)` ثم
+`generate_reporting_product(...)` كمسار advanced، لكن المسار الافتراضي يجب أن يبقى `finalize_allure_reporting(...)`.
 
 ### web reporting adapter data
 
@@ -173,6 +175,64 @@ report.matrix_dimensions = ["environment", "profile", "browser", "platform_versi
 - `utils/report_opener.py`
 - `utils/allure_cli.py`
 - `utils/logger.py`
+
+Reporting wrapper المقترح:
+
+```python
+from automation_core.reporting import finalize_allure_reporting
+
+def finalize_reports(results_dir, output_dir, *, run_id=None, open_report=False):
+    return finalize_allure_reporting(
+        results_dir=results_dir,
+        output_dir=output_dir,
+        project_name="web-automation-framework",
+        framework="pytest-playwright",
+        run_id=run_id,
+        history_dir="reports/history",
+        report_kind="core",
+        open_report=open_report,
+    )
+```
+
+### mobile final reporting wrapper
+
+```python
+from automation_core.reporting import finalize_allure_reporting
+
+def finalize_reports(results_dir, output_dir, *, run_id=None, metadata_by_test=None, open_report=False):
+    return finalize_allure_reporting(
+        results_dir=results_dir,
+        output_dir=output_dir,
+        project_name="mobile-automation-framework",
+        framework="pytest-appium",
+        run_id=run_id,
+        history_dir="reports/history",
+        report_kind="core",
+        test_metadata=metadata_by_test or {},
+        matrix_dimensions=["environment", "profile", "device_name", "platform", "platform_version", "context"],
+        open_report=open_report,
+    )
+```
+
+### API final reporting wrapper
+
+```python
+from automation_core.reporting import finalize_allure_reporting
+
+def finalize_reports(results_dir, output_dir, *, run_id=None, metadata_by_test=None, open_report=False):
+    return finalize_allure_reporting(
+        results_dir=results_dir,
+        output_dir=output_dir,
+        project_name="api-automation-framework",
+        framework="pytest-api",
+        run_id=run_id,
+        history_dir="reports/history",
+        report_kind="core",
+        test_metadata=metadata_by_test or {},
+        matrix_dimensions=["environment", "profile", "api_profile", "status"],
+        open_report=open_report,
+    )
+```
 
 مثال wrapper:
 

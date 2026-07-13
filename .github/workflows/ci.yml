@@ -52,5 +52,7 @@ jobs:
           .wheel-venv/bin/automation-core-report --results .tmp/allure-results --output .tmp/product --project-name ci --framework pytest --run-id ci-run --no-history
           test -f .tmp/product/index.html
           test -f .tmp/product/timeline.html
+          .wheel-venv/bin/automation-core-report --both --results .tmp/allure-results --output .tmp/both --project-name ci --framework pytest --run-id ci-both-run --no-history
+          test -f .tmp/both/index.html
           .wheel-venv/bin/automation-core-report --summary --results .tmp/allure-results --output .tmp/summary
           test -f .tmp/summary/index.html
