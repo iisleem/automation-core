@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "automation-core"
+version = "0.1.0"
+description = "Shared, domain-neutral Python helpers for automation frameworks."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "iisleem" }]
+keywords = ["automation", "pytest", "allure", "testing"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    "PyYAML>=6.0,<7.0",
+]
+
+[project.optional-dependencies]
+allure = ["allure-pytest>=2.13,<3.0"]
+dev = [
+    "pytest>=8.3,<9.0",
+    "ruff>=0.6,<1.0",
+    "build>=1.2,<2.0",
+]
+
+[project.scripts]
+automation-core-report = "automation_core.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/iisleem/automation-core"
+Repository = "https://github.com/iisleem/automation-core"
+Issues = "https://github.com/iisleem/automation-core/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+automation_core = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E9", "F", "I", "UP", "B"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
