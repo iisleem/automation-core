@@ -9,7 +9,7 @@ It intentionally does **not** include Selenium, Playwright page objects, Appium/
 From GitHub after the repository is published:
 
 ```bash
-pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.1.0"
+pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.2.0"
 ```
 
 For local development:
