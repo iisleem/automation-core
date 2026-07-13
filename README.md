@@ -60,7 +60,32 @@ automation-core-report \
   --history-dir reports/history
 ```
 
-Use `--summary` when you only need the legacy one-page Allure summary.
+Use `--summary` when you only need the legacy one-page Allure summary. Use `--both` when you want the core
+product report plus the official Allure HTML report if the Allure CLI is available. The official Allure report is
+optional; missing or failing Allure CLI generation does not block the core report.
+
+Frameworks can call the same finalizer directly:
+
+```python
+from automation_core.reporting import finalize_allure_reporting
+
+result = finalize_allure_reporting(
+    results_dir="reports/allure-results",
+    output_dir="reports/automation-report",
+    project_name="web-automation-framework",
+    framework="pytest-playwright",
+    run_id="local-run-001",
+    history_dir="reports/history",
+    report_kind="core",  # core, summary, allure, or both
+    open_report=False,
+)
+
+if not result.ok:
+    raise RuntimeError(result.to_dict())
+```
+
+The returned object includes per-report statuses, generated paths, warnings, errors, and open status so framework
+wrappers can make clear decisions without parsing console output.
 
 By default, local artifact files are bundled under the generated report's `artifacts/` directory when possible. External URLs are preserved.
 

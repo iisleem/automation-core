@@ -155,7 +155,7 @@ def test_allure_debug_helpers_accept_fake_allure(tmp_path):
     assert fake.attach.calls[2][0] == "debug.txt"
 
 
-def test_cli_generates_product_report_by_default_and_summary_when_requested(tmp_path):
+def test_cli_generates_product_report_by_default_and_summary_when_requested(tmp_path, monkeypatch):
     results_dir = tmp_path / "allure-results"
     results_dir.mkdir()
     (results_dir / "one-result.json").write_text(
@@ -174,6 +174,8 @@ def test_cli_generates_product_report_by_default_and_summary_when_requested(tmp_
 
     product_output = tmp_path / "product"
     summary_output = tmp_path / "summary"
+    both_output = tmp_path / "both"
+    monkeypatch.setattr("automation_core.reporting.finalizer.get_allure_cli", lambda logger=None: None)
 
     assert (
         cli_main(
@@ -210,3 +212,25 @@ def test_cli_generates_product_report_by_default_and_summary_when_requested(tmp_
         == 0
     )
     assert "Allure Results Summary" in (summary_output / "index.html").read_text(encoding="utf-8")
+
+    assert (
+        cli_main(
+            [
+                "--both",
+                "--results",
+                str(results_dir),
+                "--output",
+                str(both_output),
+                "--project-name",
+                "automation-core",
+                "--framework",
+                "pytest",
+                "--run-id",
+                "cli-both-run",
+                "--no-history",
+            ]
+        )
+        == 0
+    )
+    assert (both_output / "index.html").exists()
+    assert not (both_output / "allure" / "index.html").exists()

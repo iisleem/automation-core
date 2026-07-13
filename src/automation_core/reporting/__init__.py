@@ -5,6 +5,11 @@ from automation_core.reporting.allure_cli import get_allure_cli, get_or_install_
 from automation_core.reporting.allure_debug import attach_file, attach_json, attach_text, step
 from automation_core.reporting.analysis import classify_failure, flaky_analysis, matrix_summary, summarize_run
 from automation_core.reporting.events import ReportingEvent, build_timeline_events
+from automation_core.reporting.finalizer import (
+    ReportGenerationStatus,
+    ReportingFinalizeResult,
+    finalize_allure_reporting,
+)
 from automation_core.reporting.generator import (
     generate_browser_matrix_dashboard,
     generate_device_matrix_dashboard,
@@ -31,6 +36,8 @@ __all__ = [
     "Artifact",
     "EventRecorder",
     "ReportingEvent",
+    "ReportGenerationStatus",
+    "ReportingFinalizeResult",
     "RetryAttempt",
     "RunReport",
     "StepRecord",
@@ -46,6 +53,7 @@ __all__ = [
     "collect_step_retries",
     "collect_test_artifacts",
     "flaky_analysis",
+    "finalize_allure_reporting",
     "generate_browser_matrix_dashboard",
     "generate_device_matrix_dashboard",
     "generate_environment_matrix_dashboard",

@@ -37,6 +37,7 @@ automation-core/
         analysis.py
         allure_debug.py
         events.py
+        finalizer.py
         generator.py
         history.py
         models.py
@@ -137,22 +138,56 @@ External URLs stay untouched. If a local file cannot be copied, the original lin
 الفريموركات تغذي core هكذا:
 
 ```python
-from automation_core.reporting.adapters import run_report_from_allure_results
-from automation_core.reporting.product import generate_reporting_product
+from automation_core.reporting import finalize_allure_reporting
 
-report = run_report_from_allure_results(
-    "reports/allure-results",
+result = finalize_allure_reporting(
+    results_dir="reports/allure-results",
+    output_dir="reports/automation-report",
     project_name="mobile-automation-framework",
     framework="pytest-appium",
+    run_id="local-run",
+    history_dir="reports/history",
+    report_kind="core",
+    test_metadata=metadata_by_test,
+    matrix_dimensions=["environment", "profile", "device_name", "platform_version", "context"],
+    open_report=False,
 )
-
-for test in report.tests:
-    test.metadata.update(mobile_metadata_by_test.get(test.full_name, {}))
-
-generate_reporting_product(report, "reports/core-report", history_dir="reports/history")
 ```
 
+The finalizer returns structured status data:
+
+```python
+assert result.core.generated
+print(result.core.path)
+print(result.warnings)
+```
+
+For richer domain metadata, frameworks can still build/enrich the neutral `RunReport` through
+`run_report_from_allure_results(...)` or `EventRecorder`, then call `generate_reporting_product(...)` directly.
+
 هكذا mobile يرسل device/context/app timings كـ data، web يرسل browser/trace/video/console/network كـ data، وAPI يرسل request/response/schema/latency كـ data.
+
+### Final reporting flow
+
+`finalize_allure_reporting(...)` is the shared end-of-run orchestration API. It is domain-neutral and coordinates:
+
+- reading Allure result JSON into neutral `RunReport` data
+- generating the core product report by default
+- optionally generating the legacy summary report
+- optionally generating the official Allure HTML report
+- optionally opening the selected generated report
+- accepting neutral `metadata`, `test_metadata`, `enrichers`, and `matrix_dimensions`
+- returning `ReportingFinalizeResult` with paths, statuses, warnings, and errors
+
+Supported `report_kind` values are:
+
+- `core`: default product report
+- `summary`: legacy one-page summary
+- `allure`: official Allure HTML only
+- `both`: core product plus official Allure HTML if the CLI is available
+
+Official Allure generation never imports Allure Python APIs and never installs the CLI unless explicitly requested.
+If the CLI is missing or fails during `both`, the core product report remains the primary successful output.
 
 Adapters can also build the neutral model incrementally:
 
