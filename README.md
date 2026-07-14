@@ -10,6 +10,8 @@ It intentionally does **not** include Selenium, Playwright page objects, Appium/
 
 Keep browser, device, app, request/client, and other environment-specific code in the framework repositories. Core should contain reusable domain-neutral helpers, reporting models, events, artifacts, and utilities.
 
+See [Template Repository Strategy](docs/template_strategy.md) for the product-family template model and validation expectations.
+
 ## Install
 
 From GitHub after the repository is published:
