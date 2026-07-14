@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from automation_core.reporting.analysis import (
-    failure_categories,
+    failure_summary,
     fastest_slowest_tests,
     flaky_analysis,
     matrix_summary,
@@ -128,7 +128,6 @@ def _render_dashboard(
 ) -> str:
     summary = summarize_run(report)
     speed = fastest_slowest_tests(report)
-    failures = failure_categories(report)
     flaky = flaky_analysis(report)
     trend = trend_points(history_entries)
     rows = "\n".join(_test_row(test, details.get(test.id, "#")) for test in report.tests)
@@ -191,7 +190,7 @@ def _render_dashboard(
   </article>
   <article>
     <h2>Failure Summary</h2>
-    {_counter_list(failures)}
+    {_failure_summary_list(report)}
   </article>
 </section>
 <section>
@@ -238,7 +237,7 @@ def _render_test_page(report: RunReport, test: TestCaseReport, page_dir: Path, r
 <section class="grid two">
   <article>
     <h2>Failure Reason</h2>
-    <pre>{_e(test.failure_message or "No failure message.")}</pre>
+    {_failure_reason(test)}
   </article>
   <article>
     <h2>Context</h2>
@@ -414,7 +413,7 @@ def _test_row(test: TestCaseReport, href: str) -> str:
         f'<tr><td><span class="status {test.status}">{_e(test.status)}</span></td>'
         f'<td><a href="{_e(href)}">{_e(test.name)}</a><br><span class="muted">{_e(test.full_name)}</span></td>'
         f"<td>{_e(profile)}</td>"
-        f"<td>{_format_duration(test.duration_ms)}</td><td>{_e(test.failure_message[:240])}</td></tr>"
+        f"<td>{_format_duration(test.duration_ms)}</td><td>{_e(_failure_cell(test))}</td></tr>"
     )
 
 
@@ -432,6 +431,46 @@ def _counter_list(counter: dict[str, int]) -> str:
     if not counter:
         return "<p>No failures.</p>"
     return "<ul>" + "".join(f"<li>{_e(key)}: {value}</li>" for key, value in counter.items()) + "</ul>"
+
+
+def _failure_summary_list(report: RunReport) -> str:
+    summaries: dict[str, dict[str, Any]] = {}
+    for test in report.tests:
+        if test.status not in {"failed", "broken"}:
+            continue
+        summary = failure_summary(test)
+        bucket = summaries.setdefault(
+            summary["category"],
+            {"count": 0, "title": summary["title"], "detail": summary["detail"]},
+        )
+        bucket["count"] += 1
+    if not summaries:
+        return "<p>No failures.</p>"
+    items = "".join(
+        f"<li><strong>{_e(item['title'])}</strong>: {item['count']}"
+        f'<br><span class="muted">{_e(item["detail"])}</span></li>'
+        for item in summaries.values()
+    )
+    return f"<ul>{items}</ul>"
+
+
+def _failure_reason(test: TestCaseReport) -> str:
+    if test.status not in {"failed", "broken"} and not test.failure_message:
+        return "<pre>No failure message.</pre>"
+    summary = failure_summary(test)
+    return (
+        f"{_key_values({'Category': summary['category'], 'Probable Cause': summary['title'], 'Inspection Hint': summary['detail']})}"
+        f"<pre>{_e(test.failure_message or 'No failure message.')}</pre>"
+    )
+
+
+def _failure_cell(test: TestCaseReport) -> str:
+    if test.status not in {"failed", "broken"} and not test.failure_message:
+        return ""
+    summary = failure_summary(test)
+    if test.failure_message:
+        return f"{summary['title']} · {test.failure_message[:180]}"
+    return summary["title"]
 
 
 def _analysis_table(items: list[dict[str, Any]]) -> str:

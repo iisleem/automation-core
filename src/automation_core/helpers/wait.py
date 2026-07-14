@@ -12,17 +12,29 @@ def wait_until(
     timeout_seconds: float = 30,
     interval_seconds: float = 1,
     failure_message: str = "Condition was not met before timeout.",
+    ignore_exceptions: bool = False,
 ) -> T:
     deadline = time.monotonic() + timeout_seconds
     last_value = None
+    last_error: Exception | None = None
 
     while time.monotonic() <= deadline:
-        last_value = condition()
-        if last_value:
-            return last_value
+        try:
+            last_value = condition()
+        except Exception as error:
+            if not ignore_exceptions:
+                raise
+            last_error = error
+            last_value = None
+        else:
+            if last_value:
+                return last_value
         time.sleep(interval_seconds)
 
-    raise TimeoutError(f"{failure_message} Last value: {last_value!r}")
+    message = f"{failure_message} Last value: {last_value!r}"
+    if last_error is not None:
+        message += f" Last error: {type(last_error).__name__}: {last_error}"
+    raise TimeoutError(message)
 
 
 def poll_until(

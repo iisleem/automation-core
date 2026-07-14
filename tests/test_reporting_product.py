@@ -14,6 +14,7 @@ from automation_core.reporting import (
     classify_failure,
     collect_action_retries,
     collect_test_artifacts,
+    failure_summary,
     flaky_analysis,
     generate_reporting_product,
     matrix_summary,
@@ -189,6 +190,50 @@ def test_matrix_summary_respects_custom_dimensions():
     assert summary["context"]["contract"]["failed"] == 1
     assert summary["domain"]["api"]["failed"] == 1
     assert summary["status"]["failed"]["failed"] == 1
+
+
+def test_failure_summary_covers_known_categories():
+    cases = [
+        ("locator not found for submit", "locator_not_found", "Locator not found"),
+        ("request timed out after 30 seconds", "timeout", "Timeout"),
+        ("expected 1 actual 2 mismatch", "assertion_mismatch", "Assertion mismatch"),
+        ("schema validation failed", "api_contract_mismatch", "API contract mismatch"),
+        ("Appium server unreachable connection refused", "appium_server_unreachable", "Appium server unreachable"),
+        ("app not installed on device", "app_not_installed", "App not installed"),
+        ("WEBVIEW context not found", "webview_context_missing", "Webview context missing"),
+        ("401 unauthorized missing environment config", "auth_config_issue", "Auth or configuration issue"),
+        ("", "unknown", "Unknown failure"),
+    ]
+
+    for message, category, title in cases:
+        summary = failure_summary(TestCaseReport(id=category, name=category, status="failed", failure_message=message))
+        assert summary["category"] == category
+        assert summary["title"] == title
+        assert summary["detail"]
+
+
+def test_reporting_product_renders_smart_failure_summary(tmp_path):
+    report = RunReport(
+        run_id="failure-summary",
+        tests=[
+            TestCaseReport(
+                id="assertion",
+                name="test_total",
+                status="failed",
+                failure_message="expected total 10 actual 12 mismatch",
+            )
+        ],
+    )
+
+    generate_reporting_product(report, tmp_path / "product", update_history_file=False)
+
+    index_html = (tmp_path / "product" / "index.html").read_text(encoding="utf-8")
+    detail_html = next((tmp_path / "product" / "tests").glob("*.html")).read_text(encoding="utf-8")
+    assert "Assertion mismatch" in index_html
+    assert "Compare expected and actual values" in index_html
+    assert "Probable Cause" in detail_html
+    assert "assertion_mismatch" in detail_html
+    assert "expected total 10 actual 12 mismatch" in detail_html
 
 
 def test_validate_report_rejects_non_serializable_metadata():

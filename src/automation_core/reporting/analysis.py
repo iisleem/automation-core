@@ -23,6 +23,45 @@ FAILURE_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("assertion_mismatch", ("assert", "expected", "actual", "mismatch")),
 )
 
+FAILURE_SUMMARIES: dict[str, dict[str, str]] = {
+    "locator_not_found": {
+        "title": "Locator not found",
+        "detail": "Inspect the selector, page state, screenshots, and source snapshots for a missing or changed element.",
+    },
+    "timeout": {
+        "title": "Timeout",
+        "detail": "Check waits, service readiness, device/browser responsiveness, and the nearest timeline events.",
+    },
+    "assertion_mismatch": {
+        "title": "Assertion mismatch",
+        "detail": "Compare expected and actual values, then inspect related logs, payloads, or screenshots.",
+    },
+    "api_contract_mismatch": {
+        "title": "API contract mismatch",
+        "detail": "Review schema or contract validation output and sanitized request/response artifacts.",
+    },
+    "appium_server_unreachable": {
+        "title": "Appium server unreachable",
+        "detail": "Check server availability, endpoint configuration, logs, and capability setup.",
+    },
+    "app_not_installed": {
+        "title": "App not installed",
+        "detail": "Inspect app installation steps, app path, package or bundle identifiers, and device state.",
+    },
+    "webview_context_missing": {
+        "title": "Webview context missing",
+        "detail": "Check context discovery, hybrid app readiness, platform capabilities, and context switch timing.",
+    },
+    "auth_config_issue": {
+        "title": "Auth or configuration issue",
+        "detail": "Review credentials, environment selection, configuration values, and authorization responses.",
+    },
+    "unknown": {
+        "title": "Unknown failure",
+        "detail": "Inspect the failure message, trace, timeline, logs, artifacts, and adapter metadata.",
+    },
+}
+
 
 def summarize_run(report: RunReport) -> dict[str, Any]:
     total = len(report.tests)
@@ -107,6 +146,18 @@ def failure_categories(report: RunReport) -> dict[str, int]:
     return dict(sorted(counter.items()))
 
 
+def failure_summary(test: TestCaseReport) -> dict[str, str]:
+    category = classify_failure(test)
+    template = FAILURE_SUMMARIES.get(category)
+    if template is None:
+        return {
+            "category": category,
+            "title": _humanize_category(category),
+            "detail": "Review the failure message, trace, artifacts, and adapter metadata for this category.",
+        }
+    return {"category": category, "title": template["title"], "detail": template["detail"]}
+
+
 def classify_failure(test: TestCaseReport) -> str:
     explicit = test.metadata.get("failure_category")
     if isinstance(explicit, str) and explicit:
@@ -169,6 +220,10 @@ def _matches_rule(text: str, patterns: tuple[str, ...]) -> bool:
     if patterns[0] in text:
         return True
     return any(pattern in text for pattern in patterns[1:])
+
+
+def _humanize_category(category: str) -> str:
+    return " ".join(part.capitalize() for part in category.replace("-", "_").split("_") if part) or "Unknown failure"
 
 
 def _metadata_value(test: TestCaseReport, key: str) -> Any:
