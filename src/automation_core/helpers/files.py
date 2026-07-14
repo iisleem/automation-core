@@ -37,12 +37,13 @@ def assert_file_extension(path: Path | str, expected_extension: str) -> Path:
     return file_path
 
 
-def cleanup_directory(path: Path | str, *, recreate: bool = True) -> None:
+def cleanup_directory(path: Path | str, *, recreate: bool = True) -> Path:
     directory = Path(path)
     if directory.exists():
         rmtree(directory)
     if recreate:
         directory.mkdir(parents=True, exist_ok=True)
+    return directory
 
 
 def latest_file(directory: Path | str, pattern: str = "*") -> Path | None:

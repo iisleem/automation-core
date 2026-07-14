@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import string
 from datetime import timedelta
 
@@ -54,6 +55,29 @@ def test_wait_poll_and_retry_helpers():
     assert poll_until(lambda: 3, lambda value: value == 3, timeout_seconds=0.1, interval_seconds=0.01) == 3
 
 
+def test_wait_until_can_ignore_transient_exceptions():
+    attempts = {"count": 0}
+
+    def condition():
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise RuntimeError("not ready")
+        return "ready"
+
+    assert wait_until(condition, timeout_seconds=0.2, interval_seconds=0.01, ignore_exceptions=True) == "ready"
+
+    with pytest.raises(RuntimeError, match="not ready"):
+        wait_until(lambda: (_ for _ in ()).throw(RuntimeError("not ready")), timeout_seconds=0.1)
+
+    with pytest.raises(TimeoutError, match="Last error: RuntimeError: still not ready"):
+        wait_until(
+            lambda: (_ for _ in ()).throw(RuntimeError("still not ready")),
+            timeout_seconds=0.02,
+            interval_seconds=0.01,
+            ignore_exceptions=True,
+        )
+
+
 def test_retry_decorator_retries_function():
     calls = {"count": 0}
 
@@ -68,8 +92,13 @@ def test_retry_decorator_retries_function():
 
 
 def test_data_text_url_and_date_helpers():
-    assert unique_id("case").startswith("case-")
-    assert timestamped_value("run").startswith("run-")
+    assert re.fullmatch(r"case-[0-9a-f]{10}", unique_id("case"))
+    assert re.fullmatch(r"[0-9a-f]{6}", unique_id("", length=6))
+    with pytest.raises(ValueError, match="length"):
+        unique_id(length=0)
+    assert re.fullmatch(r"run-\d{20}", timestamped_value("run"))
+    assert re.fullmatch(r"run-\d{14}", timestamped_value("run", include_microseconds=False))
+    assert re.fullmatch(r"\d{8}", timestamped_value("", timestamp_format="%Y%m%d"))
     assert random_string(5, string.ascii_lowercase).islower()
     assert "@example.test" in random_email()
     assert random_username("qa").startswith("qa_")
@@ -77,7 +106,8 @@ def test_data_text_url_and_date_helpers():
     assert normalize_text(" a\n  b ") == "a b"
     assert extract_first_match("id=123", r"id=(\d+)") == "123"
     assert extract_otp("code 123456") == "123456"
-    assert extract_numbers("a1 b22") == ["1", "22"]
+    assert extract_numbers("a1 b22 c12.5") == ["1", "22", "12", "5"]
+    assert extract_numbers("a1 b22 c12.5", allow_decimal=True) == ["1", "22", "12.5"]
     url = build_url("https://example.test/", "search", {"q": "qa", "tag": ["a", "b"]})
     assert get_query_param(url, "q") == "qa"
     assert parse_query_params(url)["tag"] == ["a", "b"]
@@ -101,8 +131,11 @@ def test_file_and_structured_file_helpers(tmp_path):
     assert_csv_row_count(report, 1)
     assert_json_file_field(payload, "items.0.id", 1)
 
-    cleanup_directory(tmp_path / "nested")
+    assert cleanup_directory(tmp_path / "nested") == tmp_path / "nested"
     assert (tmp_path / "nested").is_dir()
+    removed = cleanup_directory(tmp_path / "nested", recreate=False)
+    assert removed == tmp_path / "nested"
+    assert not removed.exists()
 
 
 def test_soft_assertions_support_object_and_context_manager():

@@ -29,5 +29,6 @@ def extract_otp(
     return extract_first_match(text, regex)
 
 
-def extract_numbers(text: str) -> list[str]:
-    return re.findall(r"\d+", text)
+def extract_numbers(text: str, *, allow_decimal: bool = False) -> list[str]:
+    pattern = r"\d+(?:\.\d+)?" if allow_decimal else r"\d+"
+    return re.findall(pattern, text)

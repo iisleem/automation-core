@@ -3,7 +3,13 @@ from __future__ import annotations
 from automation_core.reporting.adapters import apply_enrichers, run_report_from_allure_results
 from automation_core.reporting.allure_cli import get_allure_cli, get_or_install_allure_cli
 from automation_core.reporting.allure_debug import attach_file, attach_json, attach_text, step
-from automation_core.reporting.analysis import classify_failure, flaky_analysis, matrix_summary, summarize_run
+from automation_core.reporting.analysis import (
+    classify_failure,
+    failure_summary,
+    flaky_analysis,
+    matrix_summary,
+    summarize_run,
+)
 from automation_core.reporting.events import ReportingEvent, build_timeline_events
 from automation_core.reporting.finalizer import (
     ReportGenerationStatus,
@@ -54,6 +60,7 @@ __all__ = [
     "collect_test_artifacts",
     "flaky_analysis",
     "finalize_allure_reporting",
+    "failure_summary",
     "generate_browser_matrix_dashboard",
     "generate_device_matrix_dashboard",
     "generate_environment_matrix_dashboard",

@@ -15,7 +15,7 @@ Keep browser, device, app, request/client, and other environment-specific code i
 From GitHub after the repository is published:
 
 ```bash
-pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.2.0"
+pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.3.0"
 ```
 
 For local development:
@@ -33,6 +33,10 @@ pytest
 - Optional Allure debug attachments with graceful no-op behavior when Allure is unavailable.
 - Wait, polling, and retry helpers.
 - Data, file, structured file, text, URL, date/time, secrets, cleanup, soft assertion, security, and response timing helpers.
+
+## Version Notes
+
+`0.3.0` adds backward-compatible helper polish for framework wrappers and a neutral smart failure summary API in reporting. It does not add browser, device, API client, or other environment-specific behavior to core.
 
 ## Boundaries
 
