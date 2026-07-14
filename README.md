@@ -4,6 +4,12 @@
 
 It intentionally does **not** include Selenium, Playwright page objects, Appium/device logic, API clients, schemas, or framework-specific pytest fixtures. Those stay in their standalone repositories.
 
+## Repository Role
+
+`automation-core` is a shared package, not a starter template repository. Start user-facing automation suites from the web, mobile, or API framework template repositories, then consume `automation-core` as a pinned dependency.
+
+Keep browser, device, app, request/client, and other environment-specific code in the framework repositories. Core should contain reusable domain-neutral helpers, reporting models, events, artifacts, and utilities.
+
 ## Install
 
 From GitHub after the repository is published:
