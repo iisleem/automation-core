@@ -39,10 +39,11 @@ pytest
 
 ## Version Notes
 
-`0.9.0` adds retained timestamped report runs and a portfolio dashboard. The shared finalizer now stores each core
-report under `reports/automation-report/runs/<timestamp>-<run-id>/`, keeps older run folders, archives a pre-existing
-root report instead of overwriting it, and writes cross-run `index.html`, `reports.html`, and `portfolio-data.json`
-pages at the report root.
+`0.9.1` improves small-screen report readability by turning wide run-detail tables into labeled
+mobile cards. `0.9.0` adds retained timestamped report runs and a portfolio dashboard. The shared
+finalizer now stores each core report under `reports/automation-report/runs/<timestamp>-<run-id>/`,
+keeps older run folders, archives a pre-existing root report instead of overwriting it, and writes
+cross-run `index.html`, `reports.html`, and `portfolio-data.json` pages at the report root.
 
 `0.8.0` adds an enterprise export pack for the static reporting product: Word executive summary, Excel test index workbook, and an SVG share card generated without extra runtime dependencies.
 
