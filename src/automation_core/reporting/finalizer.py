@@ -9,6 +9,7 @@ from automation_core.reporting.adapters import ReportEnricher, TestMetadata, run
 from automation_core.reporting.allure_cli import get_allure_cli, get_or_install_allure_cli
 from automation_core.reporting.generator import generate_html_report
 from automation_core.reporting.opener import open_report as open_report_path
+from automation_core.reporting.portfolio import generate_report_portfolio, prepare_timestamped_report_dir
 from automation_core.reporting.product import generate_reporting_product
 
 ReportKind = Literal["core", "summary", "allure", "both"]
@@ -21,6 +22,7 @@ class ReportGenerationStatus:
     generated: bool = False
     status: str = "not_requested"
     path: str | None = None
+    run_path: str | None = None
     error: str = ""
     warnings: list[str] = field(default_factory=list)
 
@@ -30,6 +32,7 @@ class ReportGenerationStatus:
             "generated": self.generated,
             "status": self.status,
             "path": self.path,
+            "run_path": self.run_path,
             "error": self.error,
             "warnings": list(self.warnings),
         }
@@ -196,13 +199,19 @@ def _generate_core_report(
         )
         if matrix_dimensions is not None:
             report.matrix_dimensions = matrix_dimensions
+        report_output_path = prepare_timestamped_report_dir(
+            output_path,
+            run_id=report.run_id,
+            generated_at=report.generated_at,
+        )
         report_path = generate_reporting_product(
             report,
-            output_path,
+            report_output_path,
             history_dir=Path(history_dir) if history_dir is not None else None,
             bundle_artifacts=bundle_artifacts,
             update_history_file=update_history_file,
         )
+        portfolio_path = generate_report_portfolio(output_path, current_report_dir=report_output_path)
     except Exception as error:
         _mark_failed(result.core, error)
         result.errors.append(f"Core report failed: {error}")
@@ -210,7 +219,8 @@ def _generate_core_report(
 
     result.core.generated = True
     result.core.status = "generated"
-    result.core.path = str(report_path)
+    result.core.path = str(portfolio_path)
+    result.core.run_path = str(report_path)
 
 
 def _generate_summary_report(

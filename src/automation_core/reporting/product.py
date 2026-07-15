@@ -6,6 +6,7 @@ import os
 import re
 import zipfile
 from csv import DictWriter
+from datetime import datetime
 from io import StringIO
 from pathlib import Path
 from shutil import copy2
@@ -535,7 +536,7 @@ def _render_dashboard(
   <div>
     <p class="eyebrow">{_e(report.project_name or "automation")}</p>
     <h1>Automation Report</h1>
-    <p>{_e(report.framework or "shared reporting")} · {_e(summary["latest_run"])}</p>
+    <p>{_e(report.framework or "shared reporting")} · {_e(_format_datetime(summary["latest_run"]))}</p>
   </div>
   <span class="status {summary["status"]}">{_e(summary["status"])}</span>
 </header>
@@ -644,6 +645,7 @@ def _render_dashboard(
             _key_values(
                 {
                     "Run ID": report.run_id,
+                    "Generated": _format_datetime(summary["latest_run"]),
                     "Profiles": ", ".join(summary["profiles"]) or "-",
                     "Environments": ", ".join(summary["environments"]) or "-",
                     "Browsers": ", ".join(summary["browsers"]) or "-",
@@ -1152,7 +1154,7 @@ def _render_matrix_page(report: RunReport, report_data: dict[str, Any]) -> str:
 
 def _render_history_page(report: RunReport, history_entries: list[dict[str, Any]], report_data: dict[str, Any]) -> str:
     rows = "\n".join(
-        f'<tr data-filter-row data-search="{_e(_row_search(entry))}"><td>{_e(entry.get("latest_run", ""))}</td><td>{_e(entry.get("run_id", ""))}</td>'
+        f'<tr data-filter-row data-search="{_e(_row_search(entry))}"><td>{_e(_format_datetime(entry.get("latest_run", "")))}</td><td>{_e(entry.get("run_id", ""))}</td>'
         f"<td>{entry.get('pass_rate', 0)}%</td><td>{entry.get('flaky', 0)}</td>"
         f"<td>{entry.get('failed', 0) + entry.get('broken', 0)}</td><td>{_format_duration(entry.get('duration_ms', 0))}</td></tr>"
         for entry in history_entries
@@ -1797,7 +1799,7 @@ def _flaky_breakdown_view(breakdown: dict[str, int]) -> str:
 def _timeline_table(events: list[ReportingEvent], *, table_id: str = "timeline-table") -> str:
     rows = "\n".join(
         f'<tr data-filter-row data-search="{_e(_row_search(event.to_dict()))}" data-event="{_e(event.event_type)}" data-status="{_e(event.status or "")}">'
-        f"<td>{_e(event.timestamp.isoformat())}</td><td>{_e(event.event_type)}</td><td>{_e(event.test_name or '')}</td>"
+        f"<td>{_e(_format_datetime(event.timestamp))}</td><td>{_e(event.event_type)}</td><td>{_e(event.test_name or '')}</td>"
         f"<td>{_e(event.title)}</td><td>{_e(event.status or '')}</td><td>{_format_duration(event.duration_ms or 0)}</td></tr>"
         for event in events
     )
@@ -2161,6 +2163,17 @@ def _format_duration_delta(value: Any) -> str:
     numeric = float(value)
     prefix = "+" if numeric > 0 else "-" if numeric < 0 else ""
     return f"{prefix}{_format_duration(abs(numeric))}" if numeric else "0s"
+
+
+def _format_datetime(value: Any) -> str:
+    if hasattr(value, "astimezone") and hasattr(value, "strftime"):
+        return value.astimezone().strftime("%b %d, %Y %H:%M")
+    if isinstance(value, str) and value:
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone().strftime("%b %d, %Y %H:%M")
+        except ValueError:
+            return value
+    return "-"
 
 
 def _format_duration(duration_ms: float | int) -> str:

@@ -27,6 +27,12 @@ from automation_core.reporting.generator import (
 )
 from automation_core.reporting.models import Artifact, RetryAttempt, RunReport, StepRecord, TestCaseReport
 from automation_core.reporting.opener import open_report
+from automation_core.reporting.portfolio import (
+    archive_legacy_report_if_needed,
+    collect_report_runs,
+    generate_report_portfolio,
+    prepare_timestamped_report_dir,
+)
 from automation_core.reporting.product import generate_reporting_product
 from automation_core.reporting.quality import (
     QualityGate,
@@ -80,12 +86,16 @@ __all__ = [
     "generate_environment_matrix_dashboard",
     "generate_html_report",
     "generate_matrix_dashboard",
+    "generate_report_portfolio",
     "generate_reporting_product",
     "get_allure_cli",
     "get_or_install_allure_cli",
     "iter_steps",
     "matrix_summary",
     "open_report",
+    "prepare_timestamped_report_dir",
+    "archive_legacy_report_if_needed",
+    "collect_report_runs",
     "read_allure_results",
     "run_report_from_allure_results",
     "step",
