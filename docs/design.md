@@ -129,7 +129,7 @@ report = RunReport(
 - `flaky.html`: flaky/slow/failing analysis.
 - `matrix.html`: profile/browser/device/environment comparison.
 - `history.html`: history/trend من `reports/history`.
-- `report-data.json`: JSON-safe sidecar للـ dashboard insights, test index, chart aggregates, clusters, matrix/history, timeline counts, and artifact index.
+- `report-data.json`: JSON-safe sidecar للـ dashboard insights, test index, chart aggregates, clusters, matrix/history, timeline counts, sharing metadata, and artifact index.
 - `data/run-report.json`: neutral JSON للـ run الحالي.
 
 Local artifacts are bundled by default under `artifacts/` inside the generated report:
@@ -327,17 +327,33 @@ It includes:
 - history trend points and recent comparison
 - risk signals and environment/execution coverage dimensions when metadata is available
 - artifact index with bundled hrefs after local artifact copying
+- sharing/export metadata with safe-share redaction status and export paths
 
 ### Enterprise static report experience
 
 The product report remains a portable static artifact: `index.html` works from local files or CI artifacts without a
-server or external CDN. The shared shell links Dashboard, Tests, Timeline, Flaky, Matrix, and History consistently.
+server or external CDN. The shared shell links Dashboard, Executive, Tests, Timeline, Flaky, Matrix, History, and Share consistently.
 Pages include self-contained CSS/JavaScript for search, filtering, sorting, charts, and matrix view toggles.
 
 The Dashboard includes status distribution, duration distribution, slowest tests, failure category, retry signal,
 artifact type, and history trend charts. The Tests Explore page uses the sidecar test index for global search,
 filters, sorting, table/card views, and filtered chart summaries. Matrix pages use overflow-safe full-width sections
 with heatmap cards plus tables so long dimension values do not break the layout.
+
+The Executive page summarizes release readiness, top blockers, trend, quality signals, flaky/retry state, and
+environment coverage for release stakeholders. The Share page provides stakeholder-oriented links, safe-sharing
+status, package guidance, artifact index, and generated exports:
+
+- `exports/test-index.csv`
+- `exports/report-bundle.json`
+- `exports/share-manifest.json`
+- `print-summary.html`
+
+Safe sharing is enabled by default for generated public-facing outputs. Sensitive values matching neutral key/name
+patterns such as `token`, `secret`, `password`, `authorization`, `cookie`, `api_key`, `bearer`, and `session` are
+replaced with `[redacted]` in HTML, sidecar/search text, `data/run-report.json`, CSV, and JSON export summaries.
+The data shape is preserved; values are redacted rather than removing keys. Internal callers can opt out with
+`safe_share=False` when raw diagnostics are required.
 
 ## Boundaries
 

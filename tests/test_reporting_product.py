@@ -367,7 +367,7 @@ def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
 
 
 def test_safe_share_redacts_sidecar_exports_search_and_html_by_default(tmp_path):
-    log = tmp_path / "token-log.txt"
+    log = tmp_path / "plain.log"
     log.write_text("authorization: Bearer raw-log-token\nnormal log line\n", encoding="utf-8")
     raw_secret = "raw-secret-value"
     report = RunReport(
@@ -436,6 +436,7 @@ def test_safe_share_redacts_sidecar_exports_search_and_html_by_default(tmp_path)
             (tmp_path / "product" / "exports" / "test-index.csv").read_text(encoding="utf-8"),
             (tmp_path / "product" / "exports" / "report-bundle.json").read_text(encoding="utf-8"),
             (tmp_path / "product" / "exports" / "share-manifest.json").read_text(encoding="utf-8"),
+            next((tmp_path / "product" / "artifacts").iterdir()).read_text(encoding="utf-8"),
             next((tmp_path / "product" / "tests").glob("*.html")).read_text(encoding="utf-8"),
             (tmp_path / "product" / "share.html").read_text(encoding="utf-8"),
         ]
@@ -444,6 +445,7 @@ def test_safe_share_redacts_sidecar_exports_search_and_html_by_default(tmp_path)
     assert "raw-auth-token" not in generated_text
     assert "raw-cookie" not in generated_text
     assert "raw-log-token" not in generated_text
+    assert str(log) not in generated_text
     assert "public-value" in generated_text
     assert "artifact-public" in generated_text
     assert "[redacted]" in generated_text

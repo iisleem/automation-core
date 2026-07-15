@@ -58,11 +58,11 @@ def generate_reporting_product(
     history_entries = _history_entries(output_report, history_dir, update_history_file, history_limit)
     timeline = build_timeline_events(output_report)
     report_data = build_report_data(
-        output_report,
+        report if safe_share else output_report,
         history_entries=history_entries,
         timeline_events=timeline,
         details=details,
-        safe_share=False,
+        safe_share=safe_share,
         redaction=redaction,
     )
 
@@ -104,7 +104,11 @@ def _bundle_report_artifacts(report: RunReport, output_dir: Path, *, safe_share:
             artifacts_dir.mkdir(parents=True, exist_ok=True)
             destination = _artifact_destination(artifacts_dir, artifact, source, index, safe_share=safe_share)
             try:
-                if source.resolve() != destination.resolve():
+                if safe_share and artifact.artifact_type in TEXT_ARTIFACT_TYPES:
+                    destination.write_text(
+                        redact_text(source.read_text(encoding="utf-8", errors="replace")), encoding="utf-8"
+                    )
+                elif source.resolve() != destination.resolve():
                     copy2(source, destination)
                 artifact.metadata.setdefault("original_path", str(source))
                 artifact.metadata["bundled"] = True
@@ -115,7 +119,9 @@ def _bundle_report_artifacts(report: RunReport, output_dir: Path, *, safe_share:
                 artifact.metadata["bundle_error"] = str(error)
 
 
-def _artifact_destination(artifacts_dir: Path, artifact: Artifact, source: Path, index: int, *, safe_share: bool) -> Path:
+def _artifact_destination(
+    artifacts_dir: Path, artifact: Artifact, source: Path, index: int, *, safe_share: bool
+) -> Path:
     name = artifact.name or source.stem
     if safe_share and is_sensitive_name(name):
         name = artifact.artifact_type or "artifact"
@@ -525,15 +531,17 @@ def _render_executive_page(
 <section class="grid two">
   <article>
     <h2>Readiness</h2>
-    {_key_values(
-            {
-                "Headline": readiness["headline"],
-                "Next Action": readiness["next_action"],
-                "Pass Rate Change": _format_delta(health.get("pass_rate_delta"), suffix="%"),
-                "Failed Change": _format_delta(health.get("failed_delta")),
-                "Previous Run": health.get("previous_run_id") or "-",
-            }
-        )}
+    {
+            _key_values(
+                {
+                    "Headline": readiness["headline"],
+                    "Next Action": readiness["next_action"],
+                    "Pass Rate Change": _format_delta(health.get("pass_rate_delta"), suffix="%"),
+                    "Failed Change": _format_delta(health.get("failed_delta")),
+                    "Previous Run": health.get("previous_run_id") or "-",
+                }
+            )
+        }
   </article>
   <article>
     <h2>Top Blockers</h2>
@@ -548,13 +556,15 @@ def _render_executive_page(
   <article>
     <h2>Flaky And Retry Summary</h2>
     {_flaky_breakdown_view(report_data["flaky"]["breakdown"])}
-    {_key_values(
-            {
-                "Test Retries": report_data["signals"]["test_retry_count"],
-                "Action Retries": report_data["signals"]["action_retry_count"],
-                "Healing Events": report_data["signals"]["healing_event_count"],
-            }
-        )}
+    {
+            _key_values(
+                {
+                    "Test Retries": report_data["signals"]["test_retry_count"],
+                    "Action Retries": report_data["signals"]["action_retry_count"],
+                    "Healing Events": report_data["signals"]["healing_event_count"],
+                }
+            )
+        }
   </article>
 </section>
 <section>
@@ -567,9 +577,19 @@ def _render_executive_page(
   {_history_comparison_view(report_data["history"]["comparison"])}
 </section>
 <section class="grid three">
-  <article><h2>Executive Links</h2>{_link_list({"Printable summary": "print-summary.html", "Share center": "share.html", "Dashboard": "index.html"})}</article>
-  <article><h2>QA Lead Links</h2>{_link_list({"Tests Explore": "explore.html", "Flaky analysis": "flaky.html", "Matrix": "matrix.html"})}</article>
-  <article><h2>Developer Links</h2>{_link_list({"Timeline": "timeline.html", "Report data": "report-data.json", "Artifacts": "share.html#artifacts"})}</article>
+  <article><h2>Executive Links</h2>{
+            _link_list(
+                {"Printable summary": "print-summary.html", "Share center": "share.html", "Dashboard": "index.html"}
+            )
+        }</article>
+  <article><h2>QA Lead Links</h2>{
+            _link_list({"Tests Explore": "explore.html", "Flaky analysis": "flaky.html", "Matrix": "matrix.html"})
+        }</article>
+  <article><h2>Developer Links</h2>{
+            _link_list(
+                {"Timeline": "timeline.html", "Report data": "report-data.json", "Artifacts": "share.html#artifacts"}
+            )
+        }</article>
 </section>
 """,
     )
@@ -626,21 +646,25 @@ def _render_print_summary_page(
     return _page(
         "Printable Summary",
         f"""
-<header class="hero compact"><div><p class="eyebrow">{_e(report.run_id)}</p><h1>Printable Summary</h1><p>{_e(readiness["headline"])}</p></div></header>
+<header class="hero compact"><div><p class="eyebrow">{_e(report.run_id)}</p><h1>Printable Summary</h1><p>{
+            _e(readiness["headline"])
+        }</p></div></header>
 {_nav("share")}
 <section class="print-summary">
   <article>
     <h2>Release Readiness</h2>
-    {_key_values(
-            {
-                "Headline": readiness["headline"],
-                "Next Action": readiness["next_action"],
-                "Pass Rate": f"{summary['pass_rate']}%",
-                "Failed": summary["failed"] + summary["broken"],
-                "Flaky": summary["flaky"],
-                "Duration": _format_duration(summary["duration_ms"]),
-            }
-        )}
+    {
+            _key_values(
+                {
+                    "Headline": readiness["headline"],
+                    "Next Action": readiness["next_action"],
+                    "Pass Rate": f"{summary['pass_rate']}%",
+                    "Failed": summary["failed"] + summary["broken"],
+                    "Flaky": summary["flaky"],
+                    "Duration": _format_duration(summary["duration_ms"]),
+                }
+            )
+        }
   </article>
   <article>
     <h2>Top Blockers</h2>
@@ -888,10 +912,11 @@ def _page(title: str, body: str) -> str:
     .legend {{ display:grid; gap:7px; }}
     .legend span {{ display:inline-flex; gap:7px; align-items:center; }}
     .swatch {{ width:10px; height:10px; border-radius:3px; display:inline-block; }}
-    .risk-list,.coverage-list {{ display:grid; gap:10px; }}
-    .risk {{ border-left:4px solid var(--accent-2); padding:10px 12px; background:#f8fafc; border-radius:6px; }}
+    .risk-list,.coverage-list {{ display:grid; gap:10px; min-width:0; }}
+    .risk {{ border-left:4px solid var(--accent-2); padding:10px 12px; background:#f8fafc; border-radius:6px; min-width:0; overflow:hidden; }}
     .risk.high {{ border-left-color:var(--danger); }}
     .risk.medium {{ border-left-color:var(--warn); }}
+    .risk a,.risk .muted {{ overflow-wrap:anywhere; word-break:break-word; }}
     .share-banner {{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; padding:13px 14px; background:#edf7f4; border:1px solid #b8ded4; border-radius:8px; }}
     .safe-badge {{ display:inline-flex; align-items:center; gap:7px; font-weight:700; color:#0f5b46; background:#dff7ed; border:1px solid #a7d9c9; border-radius:999px; padding:6px 10px; }}
     .export-card,.stakeholder-card {{ display:grid; gap:10px; align-content:start; }}
@@ -1269,9 +1294,11 @@ def _safe_share_badge(report_data: dict[str, Any]) -> str:
 
 
 def _link_list(links: dict[str, str]) -> str:
-    return '<div class="export-links">' + "".join(
-        f'<a class="button" href="{_e(href)}">{_e(label)}</a>' for label, href in links.items()
-    ) + "</div>"
+    return (
+        '<div class="export-links">'
+        + "".join(f'<a class="button" href="{_e(href)}">{_e(label)}</a>' for label, href in links.items())
+        + "</div>"
+    )
 
 
 def _export_card(title: str, body: str, links: dict[str, str]) -> str:

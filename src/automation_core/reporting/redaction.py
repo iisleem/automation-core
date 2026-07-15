@@ -19,10 +19,12 @@ SENSITIVE_PATTERN_LABELS = (
     ("session", re.compile(r"session", re.IGNORECASE)),
 )
 NAME_KEYS = {"name", "artifact_name", "file_name", "filename", "title"}
+PATH_KEYS = {"path", "href", "original_path", "source"}
+ALWAYS_REDACT_KEYS = {"original_path"}
 TEXT_SECRET_PATTERN = re.compile(
     r"(?i)(bearer\s+)[^\s,;]+|"
-    r"((?:token|secret|password|passwd|pwd|authorization|cookie|api[_-]?key|session)"
-    r"[\w .-]*(?:=|:)\s*)[^\n,;]+"
+    r"((?:authorization|auth[_-]?header|cookie)[\w .-]*(?:=|:)\s*(?:bearer\s+)?)[^\s,;]+|"
+    r"((?:token|secret|password|passwd|pwd|api[_-]?key|session)[\w .-]*(?:=|:)\s*)[^\s,;]+"
 )
 
 
@@ -87,15 +89,23 @@ def _redact_in_place(value: Any, tracker: RedactionTracker, *, key: str | None) 
 
 
 def _redact_value(value: Any, tracker: RedactionTracker, *, key: str | None) -> Any:
+    if isinstance(value, str) and value == REDACTED_VALUE:
+        return value
+
     key_label = _sensitive_label(key or "")
     if key_label:
         tracker.record(key_label)
+        return REDACTED_VALUE
+    if key in ALWAYS_REDACT_KEYS:
+        tracker.record(str(key))
         return REDACTED_VALUE
 
     if is_dataclass(value):
         return _redact_in_place(value, tracker, key=key)
     if isinstance(value, dict):
-        return {item_key: _redact_value(item_value, tracker, key=str(item_key)) for item_key, item_value in value.items()}
+        return {
+            item_key: _redact_value(item_value, tracker, key=str(item_key)) for item_key, item_value in value.items()
+        }
     if isinstance(value, list):
         return [_redact_value(item, tracker, key=key) for item in value]
     if isinstance(value, tuple):
@@ -103,7 +113,7 @@ def _redact_value(value: Any, tracker: RedactionTracker, *, key: str | None) -> 
     if isinstance(value, set):
         return {_redact_value(item, tracker, key=key) for item in value}
     if isinstance(value, str):
-        if key in NAME_KEYS:
+        if key in NAME_KEYS or key in PATH_KEYS:
             name_label = _sensitive_label(value)
             if name_label:
                 tracker.record(name_label)
@@ -122,6 +132,8 @@ def _replace_text_secret(match: re.Match[str], tracker: RedactionTracker | None 
         return f"{match.group(1)}{REDACTED_VALUE}"
     if match.group(2):
         return f"{match.group(2)}{REDACTED_VALUE}"
+    if match.group(3):
+        return f"{match.group(3)}{REDACTED_VALUE}"
     return REDACTED_VALUE
 
 

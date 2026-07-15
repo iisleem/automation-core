@@ -17,7 +17,7 @@ See [Template Repository Strategy](docs/template_strategy.md) for the product-fa
 From GitHub after the repository is published:
 
 ```bash
-pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.5.0"
+pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.6.0"
 ```
 
 For local development:
@@ -31,13 +31,15 @@ pytest
 
 - Config loading for YAML/JSON, environment interpolation, environment selection, and `deep_get`.
 - Logging setup with optional file logging.
-- Shared reporting product with neutral models/events/artifacts, visual dashboard charts, searchable Tests Explore, test details, timeline, flaky analysis, matrix heatmaps, artifacts viewer, history, machine-readable sidecar data, plus Allure result parsing and fallback HTML summaries.
+- Shared reporting product with neutral models/events/artifacts, visual dashboard charts, executive summary, share/export center, searchable Tests Explore, test details, timeline, flaky analysis, matrix heatmaps, artifacts viewer, history, machine-readable sidecar data, plus Allure result parsing and fallback HTML summaries.
 - Runtime auto-healing foundation with neutral locator/candidate models, scoring, safety gates, JSONL audit events, and report metadata helpers.
 - Optional Allure debug attachments with graceful no-op behavior when Allure is unavailable.
 - Wait, polling, and retry helpers.
 - Data, file, structured file, text, URL, date/time, secrets, cleanup, soft assertion, security, and response timing helpers.
 
 ## Version Notes
+
+`0.6.0` adds the first enterprise sharing slice for the static reporting product: Executive Summary, Share And Export center, printable summary, CSV/JSON export artifacts, share manifest, stakeholder views, and safe-sharing redaction for generated report outputs by default.
 
 `0.5.0` upgrades the static reporting product with enterprise-style dashboard charts, a searchable Tests Explore page, page-level filters, matrix heatmaps, richer test detail search, and expanded chart-ready `report-data.json` data.
 
@@ -149,6 +151,21 @@ The product report also writes `report-data.json` next to `index.html`. It conta
 test index records with detail links, chart-ready aggregates, failure clusters, flaky breakdown, matrix rows,
 timeline counts/events, history comparison points, risk signals, coverage metadata, and an artifact index with
 bundled hrefs. Framework validation can read this file instead of scraping HTML.
+
+Generated reports are safe-sharing enabled by default. Values under sensitive keys or names such as `token`,
+`secret`, `password`, `authorization`, `cookie`, `api_key`, `bearer`, and `session` are replaced with `[redacted]`
+in public-facing HTML, `report-data.json`, `data/run-report.json`, CSV exports, and JSON export bundles. Normal
+metadata values are preserved. Call `generate_reporting_product(..., safe_share=False)` or
+`build_report_data(..., safe_share=False)` only for internal raw diagnostics.
+
+The report also writes:
+
+- `executive.html`: management-ready readiness, blockers, trend, quality, retry, and coverage summary.
+- `share.html`: export center with stakeholder views and links to the generated artifacts.
+- `print-summary.html`: printable HTML summary suitable for browser PDF printing.
+- `exports/test-index.csv`: flat test index for spreadsheet workflows.
+- `exports/report-bundle.json`: compact JSON bundle for downstream validation.
+- `exports/share-manifest.json`: package manifest with safe-sharing status and report entry points.
 
 ## Recording Events
 
