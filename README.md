@@ -17,7 +17,7 @@ See [Template Repository Strategy](docs/template_strategy.md) for the product-fa
 From GitHub after the repository is published:
 
 ```bash
-pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.7.0"
+pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.8.0"
 ```
 
 For local development:
@@ -38,6 +38,8 @@ pytest
 - Data, file, structured file, text, URL, date/time, secrets, cleanup, soft assertion, security, and response timing helpers.
 
 ## Version Notes
+
+`0.8.0` adds an enterprise export pack for the static reporting product: Word executive summary, Excel test index workbook, and an SVG share card generated without extra runtime dependencies.
 
 `0.7.0` adds neutral report quality gates, new/known/resolved failure comparison against history, run-to-run comparison sidecar data, and a dedicated Quality page in the static reporting product.
 
@@ -173,6 +175,9 @@ The report also writes:
 - `share.html`: export center with stakeholder views and links to the generated artifacts.
 - `print-summary.html`: printable HTML summary suitable for browser PDF printing.
 - `exports/test-index.csv`: flat test index for spreadsheet workflows.
+- `exports/test-index.xlsx`: Excel workbook version of the test index.
+- `exports/executive-summary.docx`: Word executive summary for stakeholder handoff.
+- `exports/share-card.svg`: shareable visual status card for messages, dashboards, or release notes.
 - `exports/report-bundle.json`: compact JSON bundle for downstream validation.
 - `exports/share-manifest.json`: package manifest with safe-sharing status and report entry points.
 

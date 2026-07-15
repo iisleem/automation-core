@@ -4,6 +4,7 @@ import html
 import json
 import os
 import re
+import zipfile
 from csv import DictWriter
 from io import StringIO
 from pathlib import Path
@@ -159,6 +160,9 @@ def _write_share_exports(report: RunReport, report_data: dict[str, Any], output_
     exports_dir = output_path / "exports"
     exports_dir.mkdir(parents=True, exist_ok=True)
     (exports_dir / "test-index.csv").write_text(_test_index_csv(report_data["test_index"]), encoding="utf-8")
+    _write_test_index_xlsx(exports_dir / "test-index.xlsx", report_data["test_index"])
+    _write_executive_summary_docx(exports_dir / "executive-summary.docx", report, report_data)
+    (exports_dir / "share-card.svg").write_text(_share_card_svg(report, report_data), encoding="utf-8")
     bundle = {
         "run": report_data["run"],
         "test_index": report_data["test_index"],
@@ -239,6 +243,263 @@ def _test_index_csv(test_index: list[dict[str, Any]]) -> str:
             }
         )
     return output.getvalue()
+
+
+def _write_test_index_xlsx(path: Path, test_index: list[dict[str, Any]]) -> None:
+    headers = [
+        "Test ID",
+        "Name",
+        "Status",
+        "Domain",
+        "Profile",
+        "Environment",
+        "Duration ms",
+        "Failure Category",
+        "Failure Title",
+        "Detail",
+        "Artifacts",
+        "Test Retries",
+        "Action Retries",
+        "Healing Events",
+    ]
+    rows = [
+        [
+            item.get("test_id", ""),
+            item.get("name", ""),
+            item.get("status", ""),
+            item.get("domain", ""),
+            item.get("profile", ""),
+            item.get("environment", ""),
+            item.get("duration_ms", 0),
+            item.get("failure", {}).get("category", ""),
+            item.get("failure", {}).get("title", ""),
+            item.get("detail_href", ""),
+            item.get("artifact_count", 0),
+            item.get("retry_count", 0),
+            item.get("action_retry_count", 0),
+            item.get("healing_event_count", 0),
+        ]
+        for item in test_index
+    ]
+    _write_xlsx(path, "Test Index", headers, rows)
+
+
+def _write_executive_summary_docx(path: Path, report: RunReport, report_data: dict[str, Any]) -> None:
+    summary = report_data["run"]["summary"]
+    quality = report_data.get("quality", {})
+    transitions = report_data.get("failure_transitions", {}).get("counts", {})
+    health = report_data.get("run", {}).get("health", {})
+    rows = [
+        ("Project", report.project_name or "-"),
+        ("Run ID", report.run_id),
+        ("Framework", report.framework or "-"),
+        ("Pass Rate", f"{summary.get('pass_rate', 0)}%"),
+        ("Total Tests", summary.get("total", 0)),
+        ("Passed", summary.get("passed", 0)),
+        ("Failed/Broken", summary.get("failed", 0) + summary.get("broken", 0)),
+        ("Skipped", summary.get("skipped", 0)),
+        ("Flaky", summary.get("flaky", 0)),
+        ("Duration", _format_duration(summary.get("duration_ms", 0))),
+        ("Quality Status", quality.get("status", "passed")),
+        ("New Failures", transitions.get("new", 0)),
+        ("Known Failures", transitions.get("known", 0)),
+        ("Resolved Failures", transitions.get("resolved", 0)),
+        ("Previous Run", health.get("previous_run_id") or "-"),
+    ]
+    risk_items = report_data.get("risk_signals", [])[:6]
+    blockers = [
+        f"{item.get('severity', '').upper()}: {item.get('title', '')} ({item.get('count', 0)})" for item in risk_items
+    ]
+    body = [
+        _docx_paragraph("Automation Report Executive Summary", bold=True),
+        _docx_paragraph("Run overview"),
+        _docx_table(rows),
+        _docx_paragraph("Top Risk Signals"),
+        *(_docx_paragraph(item) for item in blockers or ["No major risk signals."]),
+    ]
+    _write_docx(path, body, title="Automation Report Executive Summary")
+
+
+def _share_card_svg(report: RunReport, report_data: dict[str, Any]) -> str:
+    summary = report_data["run"]["summary"]
+    quality = report_data.get("quality", {})
+    transitions = report_data.get("failure_transitions", {}).get("counts", {})
+    failed_total = summary.get("failed", 0) + summary.get("broken", 0)
+    quality_status = str(quality.get("status", "passed")).upper()
+    status_color = "#047857" if quality_status == "PASSED" else "#b45309" if quality_status == "WARNING" else "#b91c1c"
+    title = _trim(report.project_name or "Automation Report", 48)
+    subtitle = _trim(report.run_id, 58)
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="Automation report summary">
+  <rect width="1200" height="630" fill="#f5f7fa"/>
+  <rect x="0" y="0" width="1200" height="160" fill="#102033"/>
+  <text x="56" y="68" fill="#b7c7d7" font-family="Arial, sans-serif" font-size="24">{_xml_text(subtitle)}</text>
+  <text x="56" y="120" fill="#ffffff" font-family="Arial, sans-serif" font-size="44" font-weight="700">{_xml_text(title)}</text>
+  <rect x="950" y="44" width="176" height="52" rx="26" fill="#ffffff"/>
+  <text x="1038" y="78" fill="{status_color}" font-family="Arial, sans-serif" font-size="22" font-weight="700" text-anchor="middle">{_xml_text(quality_status)}</text>
+  {_svg_metric(56, 220, "Pass Rate", f"{summary.get('pass_rate', 0)}%")}
+  {_svg_metric(326, 220, "Failed/Broken", failed_total)}
+  {_svg_metric(596, 220, "Flaky", summary.get("flaky", 0))}
+  {_svg_metric(866, 220, "Duration", _format_duration(summary.get("duration_ms", 0)))}
+  {_svg_metric(56, 400, "New Failures", transitions.get("new", 0))}
+  {_svg_metric(326, 400, "Known Failures", transitions.get("known", 0))}
+  {_svg_metric(596, 400, "Resolved", transitions.get("resolved", 0))}
+  {_svg_metric(866, 400, "Total Tests", summary.get("total", 0))}
+</svg>
+"""
+
+
+def _write_xlsx(path: Path, sheet_name: str, headers: list[str], rows: list[list[Any]]) -> None:
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>""",
+        )
+        archive.writestr(
+            "_rels/.rels",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>""",
+        )
+        archive.writestr(
+            "xl/workbook.xml",
+            f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="{_xml_attr(sheet_name)}" sheetId="1" r:id="rId1"/></sheets>
+</workbook>""",
+        )
+        archive.writestr(
+            "xl/_rels/workbook.xml.rels",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>""",
+        )
+        archive.writestr("xl/worksheets/sheet1.xml", _xlsx_sheet(headers, rows))
+        archive.writestr("docProps/core.xml", _core_properties("Automation Report Test Index"))
+        archive.writestr("docProps/app.xml", _app_properties("Automation Report"))
+
+
+def _xlsx_sheet(headers: list[str], rows: list[list[Any]]) -> str:
+    sheet_rows = [headers, *rows]
+    body = "\n".join(
+        f'<row r="{row_index}">'
+        + "".join(
+            f'<c r="{_xlsx_col(col_index)}{row_index}" t="inlineStr"><is><t>{_xml_text(value)}</t></is></c>'
+            for col_index, value in enumerate(row, start=1)
+        )
+        + "</row>"
+        for row_index, row in enumerate(sheet_rows, start=1)
+    )
+    return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>{body}</sheetData>
+</worksheet>"""
+
+
+def _write_docx(path: Path, body_parts: list[str], *, title: str) -> None:
+    document = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    {"".join(body_parts)}
+    <w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr>
+  </w:body>
+</w:document>"""
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>""",
+        )
+        archive.writestr(
+            "_rels/.rels",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>""",
+        )
+        archive.writestr("word/document.xml", document)
+        archive.writestr("docProps/core.xml", _core_properties(title))
+        archive.writestr("docProps/app.xml", _app_properties("Automation Report"))
+
+
+def _docx_paragraph(text: Any, *, bold: bool = False) -> str:
+    run_props = "<w:rPr><w:b/></w:rPr>" if bold else ""
+    return f"<w:p><w:r>{run_props}<w:t>{_xml_text(text)}</w:t></w:r></w:p>"
+
+
+def _docx_table(rows: list[tuple[Any, Any]]) -> str:
+    table_rows = "".join(
+        "<w:tr>"
+        f"<w:tc><w:p><w:r><w:t>{_xml_text(label)}</w:t></w:r></w:p></w:tc>"
+        f"<w:tc><w:p><w:r><w:t>{_xml_text(value)}</w:t></w:r></w:p></w:tc>"
+        "</w:tr>"
+        for label, value in rows
+    )
+    return f"<w:tbl>{table_rows}</w:tbl>"
+
+
+def _core_properties(title: str) -> str:
+    return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/">
+  <dc:title>{_xml_text(title)}</dc:title>
+</cp:coreProperties>"""
+
+
+def _app_properties(application: str) -> str:
+    return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">
+  <Application>{_xml_text(application)}</Application>
+</Properties>"""
+
+
+def _xlsx_col(index: int) -> str:
+    name = ""
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        name = chr(65 + remainder) + name
+    return name
+
+
+def _svg_metric(x: int, y: int, label: str, value: Any) -> str:
+    return f"""<rect x="{x}" y="{y}" width="238" height="126" rx="18" fill="#ffffff" stroke="#dbe3ec"/>
+  <text x="{x + 24}" y="{y + 46}" fill="#5b6472" font-family="Arial, sans-serif" font-size="22">{_xml_text(label)}</text>
+  <text x="{x + 24}" y="{y + 94}" fill="#172033" font-family="Arial, sans-serif" font-size="42" font-weight="700">{_xml_text(value)}</text>"""
+
+
+def _xml_attr(value: Any) -> str:
+    return html.escape(_clean_xml_text(value), quote=True)
+
+
+def _xml_text(value: Any) -> str:
+    return html.escape(_clean_xml_text(value), quote=False)
+
+
+def _clean_xml_text(value: Any) -> str:
+    text = "" if value is None else str(value)
+    return "".join(char if char in "\t\n\r" or ord(char) >= 32 else " " for char in text)
+
+
+def _trim(value: str, limit: int) -> str:
+    return value if len(value) <= limit else value[: limit - 3].rstrip() + "..."
 
 
 def _write_test_pages(report: RunReport, tests_dir: Path, report_root: Path, *, safe_share: bool) -> dict[str, str]:
@@ -699,9 +960,10 @@ def _render_share_page(report: RunReport, report_data: dict[str, Any]) -> str:
 <section class="grid three">
   {_export_card("Full Report Package", "Use the report directory as the package root. Keep HTML, data, exports, tests, and artifacts together.", {"Entry": "index.html", "Manifest": exports["share_manifest_json"]})}
   {_export_card("Run Data", "Machine-readable run summaries for downstream checks and dashboards.", {"Sidecar JSON": exports["sidecar_json"], "Run JSON": exports["run_report_json"], "Bundle JSON": exports["report_bundle_json"]})}
-  {_export_card("Test Index CSV", "Flat test index for spreadsheets and release notes.", {"CSV": exports["test_index_csv"]})}
+  {_export_card("Spreadsheet Exports", "Flat test indexes for spreadsheet workflows, release notes, and filtered follow-up analysis.", {"CSV": exports["test_index_csv"], "Excel Workbook": exports["test_index_xlsx"]})}
+  {_export_card("Document Summary", "Portable executive summary for status updates, release notes, and stakeholder handoff.", {"Word Summary": exports["executive_summary_docx"]})}
   {_export_card("Printable Summary", "Open this page and use the browser print dialog to save a PDF when needed.", {"Print Summary": exports["print_summary_html"]})}
-  {_export_card("Page And Image Export", "Capture pages with an approved local renderer when screenshots are needed for status updates.", {"Executive": "executive.html", "Dashboard": "index.html", "Matrix": "matrix.html"})}
+  {_export_card("Page And Image Export", "Use the generated share card or capture pages with an approved local renderer when screenshots are needed for status updates.", {"Share Card SVG": exports["share_card_svg"], "Executive": "executive.html", "Dashboard": "index.html", "Matrix": "matrix.html"})}
   {_export_card("Validation Targets", "Use the JSON sidecar and CSV export for CI validation without scraping HTML.", {"Report Data": "report-data.json", "Explore": "explore.html"})}
 </section>
 <section id="stakeholders">
