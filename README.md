@@ -17,7 +17,7 @@ See [Template Repository Strategy](docs/template_strategy.md) for the product-fa
 From GitHub after the repository is published:
 
 ```bash
-pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.4.1"
+pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.5.0"
 ```
 
 For local development:
@@ -31,13 +31,15 @@ pytest
 
 - Config loading for YAML/JSON, environment interpolation, environment selection, and `deep_get`.
 - Logging setup with optional file logging.
-- Shared reporting product with neutral models/events/artifacts, dashboard, test details, timeline, flaky analysis, matrix views, artifacts viewer, history, machine-readable sidecar data, plus Allure result parsing and fallback HTML summaries.
+- Shared reporting product with neutral models/events/artifacts, visual dashboard charts, searchable Tests Explore, test details, timeline, flaky analysis, matrix heatmaps, artifacts viewer, history, machine-readable sidecar data, plus Allure result parsing and fallback HTML summaries.
 - Runtime auto-healing foundation with neutral locator/candidate models, scoring, safety gates, JSONL audit events, and report metadata helpers.
 - Optional Allure debug attachments with graceful no-op behavior when Allure is unavailable.
 - Wait, polling, and retry helpers.
 - Data, file, structured file, text, URL, date/time, secrets, cleanup, soft assertion, security, and response timing helpers.
 
 ## Version Notes
+
+`0.5.0` upgrades the static reporting product with enterprise-style dashboard charts, a searchable Tests Explore page, page-level filters, matrix heatmaps, richer test detail search, and expanded chart-ready `report-data.json` data.
 
 `0.4.1` polishes the reporting product dashboard, test detail pages, matrix/history pages, and writes `report-data.json` for validation and downstream tooling.
 
@@ -144,8 +146,9 @@ wrappers can make clear decisions without parsing console output.
 By default, local artifact files are bundled under the generated report's `artifacts/` directory when possible. External URLs are preserved.
 
 The product report also writes `report-data.json` next to `index.html`. It contains JSON-safe run summary data,
-failure clusters, flaky breakdown, matrix rows, timeline counts/events, history comparison points, and an artifact
-index with bundled hrefs. Framework validation can read this file instead of scraping HTML.
+test index records with detail links, chart-ready aggregates, failure clusters, flaky breakdown, matrix rows,
+timeline counts/events, history comparison points, risk signals, coverage metadata, and an artifact index with
+bundled hrefs. Framework validation can read this file instead of scraping HTML.
 
 ## Recording Events
 

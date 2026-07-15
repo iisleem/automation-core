@@ -86,6 +86,7 @@ def test_reporting_product_generates_dashboard_details_timeline_matrix_and_histo
     assert (tmp_path / "product" / "flaky.html").exists()
     assert (tmp_path / "product" / "matrix.html").exists()
     assert (tmp_path / "product" / "history.html").exists()
+    assert (tmp_path / "product" / "explore.html").exists()
     assert (tmp_path / "product" / "report-data.json").exists()
     assert (tmp_path / "product" / "data" / "run-report.json").exists()
     detail_pages = list((tmp_path / "product" / "tests").glob("*.html"))
@@ -288,10 +289,32 @@ def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
     assert sidecar["timeline"]["event_counts"]["action_retry"] == 2
     assert sidecar["history"]["comparison"]["previous_run_id"] == "previous-run"
     assert sidecar["artifacts"][0]["href"].startswith("artifacts/")
-    assert sidecar == build_report_data(report, history_entries=json.loads((history_dir / "index.json").read_text()))
+    assert sidecar["test_index"][0]["detail_href"].startswith("tests/")
+    assert sidecar["test_index"][0]["search_text"]
+    assert sidecar["aggregates"]["status_distribution"] == {
+        "passed": 3,
+        "failed_broken": 1,
+        "skipped": 0,
+        "unknown": 0,
+    }
+    assert sidecar["aggregates"]["duration_buckets"]["30s+"] == 1
+    assert sidecar["aggregates"]["artifact_types"] == {"log": 1}
+    assert sidecar["aggregates"]["coverage"]["profile"]["chromium"] == 2
+    assert sidecar["aggregates"]["filter_options"]["failure_category"]
+    assert sidecar["charts"]["retry_signals"]["healing_event_count"] == 1
+    assert sidecar["risk_signals"]
+    details = {item["test_id"]: item["detail_href"] for item in sidecar["test_index"]}
+    assert sidecar == build_report_data(
+        report,
+        history_entries=json.loads((history_dir / "index.json").read_text()),
+        details=details,
+    )
     json.dumps(sidecar)
 
     index_html = (tmp_path / "product" / "index.html").read_text(encoding="utf-8")
+    explore_html = (tmp_path / "product" / "explore.html").read_text(encoding="utf-8")
+    timeline_html = (tmp_path / "product" / "timeline.html").read_text(encoding="utf-8")
+    flaky_html = (tmp_path / "product" / "flaky.html").read_text(encoding="utf-8")
     matrix_html = (tmp_path / "product" / "matrix.html").read_text(encoding="utf-8")
     history_html = (tmp_path / "product" / "history.html").read_text(encoding="utf-8")
     detail_html = next(
@@ -301,11 +324,29 @@ def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
     assert "Signal Counts" in index_html
     assert "Failure Clusters" in index_html
     assert "Flaky Breakdown" in index_html
+    assert "Status Distribution" in index_html
+    assert "Duration Distribution" in index_html
+    assert "Retry Signals" in index_html
+    assert "History Pass Rate" in index_html
+    assert "Environment Coverage" in index_html
+    assert "dashboard-search" in index_html
+    assert "function setupExplore" in explore_html
+    assert "explore-search" in explore_html
+    assert "explore-status-chart" in explore_html
+    assert "report-data-json" in explore_html
+    assert 'data-filter-search="timeline-table"' in timeline_html
+    assert 'data-filter-search="flaky-table"' in flaky_html
     assert "Pass Rate" in matrix_html
     assert "api_contract_mismatch: 1" in matrix_html
+    assert "matrix-heatmap" in matrix_html
+    assert "overflow-safe" in matrix_html
+    assert "data-matrix-view" in matrix_html
     assert "Recent Comparison" in history_html
+    assert 'data-filter-search="history-table"' in history_html
     assert "Smart Failure Summary" in detail_html
     assert "Healing Events" in detail_html
+    assert "Search this test" in detail_html
+    assert 'data-filter-root="detail-page"' in detail_html
     assert "[data-test=&#x27;sign-in&#x27;]" in detail_html
 
 
