@@ -339,6 +339,7 @@ def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
     assert "Pass Rate" in matrix_html
     assert "api_contract_mismatch: 1" in matrix_html
     assert "matrix-heatmap" in matrix_html
+    assert "heat-details" in matrix_html
     assert "overflow-safe" in matrix_html
     assert "data-matrix-view" in matrix_html
     assert "Recent Comparison" in history_html

@@ -614,11 +614,14 @@ def _page(title: str, body: str) -> str:
     .matrix-heatmap {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr)); gap:10px; margin-bottom:14px; }}
     body[data-matrix-view="table"] .matrix-heatmap {{ display:none; }}
     body[data-matrix-view="heatmap-only"] .matrix-table {{ display:none; }}
-    .heat-cell {{ border:1px solid var(--line); border-radius:8px; padding:11px; background:#f8fafc; min-width:0; }}
-    .heat-head {{ display:flex; justify-content:space-between; gap:10px; margin-bottom:8px; }}
-    .heat-name {{ font-weight:700; overflow-wrap:anywhere; }}
-    .heat-bar {{ height:11px; background:#e5e7eb; border-radius:999px; overflow:hidden; }}
+    .heat-cell {{ border:1px solid var(--line); border-radius:8px; padding:12px; background:#f8fafc; min-width:0; display:grid; gap:10px; align-content:start; }}
+    .heat-head {{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; min-width:0; }}
+    .heat-name {{ font-weight:700; overflow-wrap:anywhere; min-width:0; line-height:1.25; }}
+    .heat-value {{ flex:0 0 auto; white-space:nowrap; }}
+    .heat-bar {{ height:11px; background:#e5e7eb; border-radius:999px; overflow:hidden; margin:1px 0; }}
     .heat-bar span {{ display:block; height:100%; background:linear-gradient(90deg,#dc2626,#eab308,#16a34a); }}
+    .heat-details {{ color:var(--muted); font-size:13px; line-height:1.45; display:grid; gap:3px; overflow-wrap:anywhere; word-break:break-word; }}
+    .heat-failures {{ color:#425066; }}
     .explore-card-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr)); gap:12px; }}
     .test-card {{ border:1px solid var(--line); border-radius:8px; padding:14px; background:#fff; min-width:0; }}
     .empty-state {{ color:var(--muted); padding:18px; background:#fff; border:1px dashed var(--line); border-radius:8px; }}
@@ -1056,9 +1059,10 @@ def _matrix_heatmap(values: dict[str, dict[str, Any]]) -> str:
         failures = counts.get("failed", 0) + counts.get("broken", 0)
         cells.append(
             f'<div class="heat-cell" data-filter-row data-search="{_e(name)} {_e(_inline_counts(counts.get("failure_categories", {})))}" data-status="{_e(_matrix_status(counts))}">'
-            f'<div class="heat-head"><span class="heat-name">{_e(name)}</span><strong>{pass_rate:g}%</strong></div>'
+            f'<div class="heat-head"><span class="heat-name">{_e(name)}</span><strong class="heat-value">{pass_rate:g}%</strong></div>'
             f'<div class="heat-bar"><span style="width:{max(3, min(100, round(pass_rate)))}%"></span></div>'
-            f'<p class="muted">{counts.get("total", 0)} tests · {failures} failed · {_e(_inline_counts(counts.get("failure_categories", {})))}</p>'
+            f'<p class="heat-details"><span>{counts.get("total", 0)} tests · {failures} failed</span>'
+            f'<span class="heat-failures">{_e(_inline_counts(counts.get("failure_categories", {})) or "No failure categories")}</span></p>'
             "</div>"
         )
     return f'<div class="matrix-heatmap">{"".join(cells)}</div>'
