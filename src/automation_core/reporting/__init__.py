@@ -28,6 +28,13 @@ from automation_core.reporting.generator import (
 from automation_core.reporting.models import Artifact, RetryAttempt, RunReport, StepRecord, TestCaseReport
 from automation_core.reporting.opener import open_report
 from automation_core.reporting.product import generate_reporting_product
+from automation_core.reporting.quality import (
+    QualityGate,
+    QualityGateConfig,
+    QualityGateEvaluation,
+    QualityGateResult,
+    evaluate_quality_gates,
+)
 from automation_core.reporting.recorder import EventRecorder
 from automation_core.reporting.sidecar import build_report_data
 from automation_core.reporting.traversal import (
@@ -49,6 +56,10 @@ __all__ = [
     "RunReport",
     "StepRecord",
     "TestCaseReport",
+    "QualityGate",
+    "QualityGateConfig",
+    "QualityGateEvaluation",
+    "QualityGateResult",
     "apply_enrichers",
     "attach_file",
     "attach_json",
@@ -60,6 +71,7 @@ __all__ = [
     "collect_step_artifacts",
     "collect_step_retries",
     "collect_test_artifacts",
+    "evaluate_quality_gates",
     "flaky_analysis",
     "finalize_allure_reporting",
     "failure_summary",

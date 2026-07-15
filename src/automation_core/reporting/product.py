@@ -20,6 +20,7 @@ from automation_core.reporting.analysis import (
 from automation_core.reporting.events import ReportingEvent, build_timeline_events
 from automation_core.reporting.history import load_history, trend_points, update_history
 from automation_core.reporting.models import Artifact, RunReport, StepRecord, TestCaseReport, to_jsonable
+from automation_core.reporting.quality import QualityGate, QualityGateConfig
 from automation_core.reporting.redaction import is_sensitive_name, redact_report, redact_text
 from automation_core.reporting.sidecar import build_report_data
 from automation_core.reporting.traversal import collect_action_retries, collect_test_artifacts
@@ -40,6 +41,10 @@ def generate_reporting_product(
     bundle_artifacts: bool = True,
     validate: bool = True,
     safe_share: bool = True,
+    quality_gates: QualityGateConfig
+    | list[QualityGate | dict[str, Any]]
+    | tuple[QualityGate | dict[str, Any], ...]
+    | None = None,
 ) -> Path:
     output_path = Path(output_dir)
     tests_dir = output_path / "tests"
@@ -62,6 +67,7 @@ def generate_reporting_product(
         history_entries=history_entries,
         timeline_events=timeline,
         details=details,
+        quality_gates=quality_gates,
         safe_share=safe_share,
         redaction=redaction,
     )
@@ -69,6 +75,7 @@ def generate_reporting_product(
     (data_dir / "run-report.json").write_text(json.dumps(output_report.to_dict(), indent=2), encoding="utf-8")
     (output_path / "report-data.json").write_text(json.dumps(report_data, indent=2), encoding="utf-8")
     _write_share_exports(output_report, report_data, output_path)
+    (output_path / "quality.html").write_text(_render_quality_page(output_report, report_data), encoding="utf-8")
     (output_path / "executive.html").write_text(
         _render_executive_page(output_report, history_entries, report_data), encoding="utf-8"
     )
@@ -161,6 +168,9 @@ def _write_share_exports(report: RunReport, report_data: dict[str, Any], output_
         "timeline": report_data["timeline"],
         "history": report_data["history"],
         "artifacts": report_data["artifacts"],
+        "quality": report_data["quality"],
+        "failure_transitions": report_data["failure_transitions"],
+        "run_comparison": report_data["run_comparison"],
         "sharing": report_data["sharing"],
     }
     (exports_dir / "report-bundle.json").write_text(json.dumps(bundle, indent=2), encoding="utf-8")
@@ -172,6 +182,7 @@ def _write_share_exports(report: RunReport, report_data: dict[str, Any], output_
         "pages": [
             "index.html",
             "executive.html",
+            "quality.html",
             "share.html",
             "explore.html",
             "timeline.html",
@@ -350,6 +361,17 @@ def _render_dashboard(
     {_risk_signal_list(report_data["risk_signals"])}
   </article>
 </section>
+<section class="grid two">
+  <article>
+    <h2>Quality Gates</h2>
+    {_quality_overview(report_data["quality"])}
+    <p><a class="button" href="quality.html">Open Quality</a></p>
+  </article>
+  <article>
+    <h2>Failure Changes</h2>
+    {_failure_transition_counts(report_data["failure_transitions"])}
+  </article>
+</section>
 <section>
   <h2>Environment Coverage</h2>
   {_coverage_panel(aggregates["coverage"])}
@@ -400,6 +422,74 @@ def _render_dashboard(
     <thead><tr><th>Status</th><th>Test</th><th>Profile</th><th>Duration</th><th>Failure</th></tr></thead>
     <tbody>{rows or '<tr><td colspan="5">No tests found.</td></tr>'}</tbody>
   </table></div>
+</section>
+""",
+    )
+
+
+def _render_quality_page(report: RunReport, report_data: dict[str, Any]) -> str:
+    quality = report_data["quality"]
+    transitions = report_data["failure_transitions"]
+    comparison = report_data["run_comparison"]
+    return _page(
+        "Quality Gates",
+        f"""
+<header class="hero compact">
+  <div>
+    <p class="eyebrow">{_e(report.run_id)}</p>
+    <h1>Quality Gates</h1>
+    <p>{_e(quality.get("message", "Quality gate status for this run."))}</p>
+  </div>
+  <span class="status {_e(quality.get("status", "unknown"))}">{_e(quality.get("status", "unknown"))}</span>
+</header>
+{_nav("quality")}
+<section class="metrics">
+  {_metric("Gate Status", quality.get("status", "passed"))}
+  {_metric("Configured", "yes" if quality.get("configured") else "no")}
+  {_metric("New Failures", transitions["counts"]["new"])}
+  {_metric("Known Failures", transitions["counts"]["known"])}
+  {_metric("Resolved", transitions["counts"]["resolved"])}
+</section>
+<section class="toolbar" data-filter-scope="quality-gates">
+  <label class="search-box">Search gate results
+    <input type="search" data-filter-search="quality-gates" placeholder="Gate name, metric, severity, message">
+  </label>
+</section>
+<section data-filter-root="quality-gates">
+  <article>
+    <h2>Gate Results</h2>
+    {_quality_gate_table(quality)}
+  </article>
+</section>
+<section class="grid two">
+  <article>
+    <h2>Run Comparison</h2>
+    {_run_comparison_detail_view(comparison)}
+  </article>
+  <article>
+    <h2>Comparison Chart Data</h2>
+    {_bar_chart({item["metric"]: abs(int(item.get("delta", 0) or 0)) for item in report_data["charts"]["run_comparison"]}, empty="No previous run comparison.")}
+  </article>
+</section>
+<section class="toolbar" data-filter-scope="quality-failures">
+  <label class="search-box">Search failure changes
+    <input type="search" data-filter-search="quality-failures" placeholder="Test, category, status">
+  </label>
+  {_select_filter("quality-kind", "Kind", ["new", "known", "resolved"], data_filter="kind")}
+</section>
+<section class="grid three" data-filter-root="quality-failures">
+  <article>
+    <h2>New Failures</h2>
+    {_failure_transition_table(transitions["new_failures"], kind="new")}
+  </article>
+  <article>
+    <h2>Known Failures</h2>
+    {_failure_transition_table(transitions["known_failures"], kind="known")}
+  </article>
+  <article>
+    <h2>Resolved Failures</h2>
+    {_failure_transition_table(transitions["resolved_failures"], kind="resolved")}
+  </article>
 </section>
 """,
     )
@@ -835,6 +925,7 @@ def _nav(active: str, *, prefix: str = "") -> str:
     items = (
         ("dashboard", "Dashboard", "index.html"),
         ("executive", "Executive", "executive.html"),
+        ("quality", "Quality", "quality.html"),
         ("explore", "Tests", "explore.html"),
         ("timeline", "Timeline", "timeline.html"),
         ("flaky", "Flaky", "flaky.html"),
@@ -897,8 +988,9 @@ def _page(title: str, body: str) -> str:
     pre {{ white-space:pre-wrap; overflow:auto; background:#f4f6f8; border:1px solid #e1e6ed; border-radius:6px; padding:10px; max-width:100%; }}
     details {{ margin-top:10px; }}
     summary {{ cursor:pointer; color:#0f5b99; font-weight:700; }}
-    .status {{ display:inline-block; padding:5px 9px; border-radius:999px; font-size:12px; font-weight:700; text-transform:uppercase; }}
+    .status {{ display:inline-block; padding:5px 9px; border-radius:999px; font-size:12px; font-weight:700; text-transform:uppercase; white-space:nowrap; }}
     .passed {{ color:#047857; background:#dff7ed; }}
+    .warning {{ color:#92400e; background:#fef3c7; }}
     .failed,.broken,.failed_broken {{ color:#b91c1c; background:#fee2e2; }}
     .skipped {{ color:#92400e; background:#fef3c7; }}
     .unknown {{ color:#4b5563; background:#e5e7eb; }}
@@ -948,7 +1040,7 @@ def _page(title: str, body: str) -> str:
     @media (max-width:720px) {{
       .hero {{ flex-direction:column; }}
       .toolbar label {{ flex:1 1 100%; }}
-      .table-wrap.wide table {{ min-width:620px; }}
+      .table-wrap.wide table {{ min-width:860px; }}
       .hbar-row {{ grid-template-columns:1fr; }}
     }}
   </style>
@@ -1663,6 +1755,88 @@ def _history_comparison_view(comparison: dict[str, Any]) -> str:
             "Flaky Change": _format_delta(comparison.get("flaky_delta")),
             "Duration Change": _format_duration_delta(comparison.get("duration_delta_ms")),
         }
+    )
+
+
+def _quality_overview(quality: dict[str, Any]) -> str:
+    return _key_values(
+        {
+            "Status": quality.get("status", "passed"),
+            "Configured": "yes" if quality.get("configured") else "no",
+            "Passed Gates": quality.get("summary", {}).get("passed", 0),
+            "Failed Gates": quality.get("summary", {}).get("failed", 0),
+            "Warning Gates": quality.get("summary", {}).get("warning", 0),
+            "Message": quality.get("message", ""),
+        }
+    )
+
+
+def _quality_gate_table(quality: dict[str, Any]) -> str:
+    results = quality.get("results", [])
+    rows = "\n".join(
+        f'<tr data-filter-row data-search="{_e(_row_search(result))}">'
+        f'<td><span class="status {_e(result.get("status", "unknown"))}">{_e(result.get("status", ""))}</span></td>'
+        f"<td>{_e(result.get('name', ''))}</td><td>{_e(result.get('metric', ''))}</td>"
+        f"<td>{_e(result.get('expected', ''))}</td><td>{_e(result.get('actual', ''))}</td>"
+        f"<td>{_e(result.get('severity', ''))}</td><td>{_e(result.get('message', ''))}</td></tr>"
+        for result in results
+    )
+    empty = '<tr><td colspan="7">No quality gates configured.</td></tr>'
+    return (
+        '<div class="table-wrap wide"><table><thead><tr><th>Status</th><th>Name</th><th>Metric</th>'
+        "<th>Expected</th><th>Actual</th><th>Severity</th><th>Message</th></tr></thead>"
+        f"<tbody>{rows or empty}</tbody></table></div>"
+    )
+
+
+def _failure_transition_counts(transitions: dict[str, Any]) -> str:
+    counts = transitions.get("counts", {})
+    return _key_values(
+        {
+            "Previous Run": transitions.get("previous_run_id") or "-",
+            "New Failures": counts.get("new", 0),
+            "Known Failures": counts.get("known", 0),
+            "Resolved Failures": counts.get("resolved", 0),
+        }
+    )
+
+
+def _failure_transition_table(items: list[dict[str, Any]], *, kind: str) -> str:
+    rows = "\n".join(
+        f'<tr data-filter-row data-kind="{_e(kind)}" data-search="{_e(kind)} {_e(_row_search(item))}">'
+        f'<td>{_e(item.get("name", ""))}<br><span class="muted">{_e(item.get("identity", ""))}</span></td>'
+        f"<td>{_e(item.get('status') or item.get('current_status') or '')}</td>"
+        f"<td>{_e(item.get('failure_title') or item.get('failure_category') or '')}</td>"
+        f"<td>{_failure_transition_link(item)}</td></tr>"
+        for item in items
+    )
+    empty = '<tr><td colspan="4">No items.</td></tr>'
+    return (
+        '<div class="table-wrap"><table><thead><tr><th>Test</th><th>Status</th>'
+        f"<th>Failure</th><th>Link</th></tr></thead><tbody>{rows or empty}</tbody></table></div>"
+    )
+
+
+def _failure_transition_link(item: dict[str, Any]) -> str:
+    href = item.get("detail_href")
+    if not href:
+        return "-"
+    return f'<a href="{_e(href)}">Details</a>'
+
+
+def _run_comparison_detail_view(comparison: dict[str, Any]) -> str:
+    if not comparison:
+        return "<p>No previous run available.</p>"
+    values = comparison.get("values", {})
+    rows = "\n".join(
+        f'<tr data-filter-row data-search="{_e(metric)} {_e(_row_search(item))}">'
+        f"<td>{_e(_humanize_label(metric))}</td><td>{_e(item.get('current', 0))}</td>"
+        f"<td>{_e(item.get('previous', 0))}</td><td>{_format_delta(item.get('delta'))}</td></tr>"
+        for metric, item in values.items()
+    )
+    return (
+        '<div class="table-wrap"><table><thead><tr><th>Metric</th><th>Current</th><th>Previous</th>'
+        f"<th>Delta</th></tr></thead><tbody>{rows}</tbody></table></div>"
     )
 
 

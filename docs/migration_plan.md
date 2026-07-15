@@ -7,13 +7,13 @@
 في كل repo، أضف dependency بعد نشر GitHub tag:
 
 ```text
-automation-core @ git+https://github.com/iisleem/automation-core.git@v0.6.0
+automation-core @ git+https://github.com/iisleem/automation-core.git@v0.7.0
 ```
 
 أو لاحقاً إذا تم نشرها كـ package:
 
 ```text
-automation-core==0.6.0
+automation-core==0.7.0
 ```
 
 ## المرحلة 2: compatibility wrappers
@@ -48,6 +48,10 @@ result = finalize_allure_reporting(
 النتيجة `result` تحتوي `core.path`, `allure.status`, `warnings`, و`errors` حتى لا تحتاج الفريموركات parsing للـ stdout.
 إذا احتاج framework تعديل `RunReport` بتفصيل أكبر، يستطيع استخدام `run_report_from_allure_results(...)` ثم
 `generate_reporting_product(...)` كمسار advanced، لكن المسار الافتراضي يجب أن يبقى `finalize_allure_reporting(...)`.
+
+عند استخدام المسار المتقدم، يمكن للفريمورك تمرير `QualityGateConfig` إلى `generate_reporting_product(...)` لتسجيل
+حدود pass rate، failed/broken، flaky، retries، duration، أو failure categories في `quality.html` و`report-data.json`.
+تطبيق هذه gates كقرار CI يبقى اختيارًا صريحًا داخل الفريمورك أو pipeline، ولا يحدث ضمن core بشكل مفاجئ.
 
 ### web reporting adapter data
 
@@ -396,6 +400,6 @@ pytest
 
 1. إنشاء repo عام `iisleem/automation-core`.
 2. رفع الكود.
-3. عمل release tag ثابت، مثل `v0.6.0`.
+3. عمل release tag ثابت، مثل `v0.7.0`.
 4. ربط repo بنفس GitHub Project: `https://github.com/users/iisleem/projects/4`.
 5. تحديث dependencies في web/mobile/api إلى tag ثابت.
