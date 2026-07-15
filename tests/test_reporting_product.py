@@ -12,6 +12,7 @@ from automation_core.healing import (
 from automation_core.reporting import (
     Artifact,
     EventRecorder,
+    ReportingEvent,
     RetryAttempt,
     RunReport,
     StepRecord,
@@ -312,6 +313,8 @@ def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
     json.dumps(sidecar)
 
     index_html = (tmp_path / "product" / "index.html").read_text(encoding="utf-8")
+    executive_html = (tmp_path / "product" / "executive.html").read_text(encoding="utf-8")
+    share_html = (tmp_path / "product" / "share.html").read_text(encoding="utf-8")
     explore_html = (tmp_path / "product" / "explore.html").read_text(encoding="utf-8")
     timeline_html = (tmp_path / "product" / "timeline.html").read_text(encoding="utf-8")
     flaky_html = (tmp_path / "product" / "flaky.html").read_text(encoding="utf-8")
@@ -321,6 +324,16 @@ def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
         page for page in (tmp_path / "product" / "tests").glob("*.html") if "login" in page.name
     ).read_text(encoding="utf-8")
     assert "Run Health" in index_html
+    assert 'href="executive.html"' in index_html
+    assert 'href="share.html"' in index_html
+    assert "Executive Summary" in executive_html
+    assert "Share And Export" in share_html
+    assert "Stakeholder Views" in share_html
+    assert "Safe Sharing" in share_html
+    assert (tmp_path / "product" / "print-summary.html").exists()
+    assert (tmp_path / "product" / "exports" / "test-index.csv").exists()
+    assert (tmp_path / "product" / "exports" / "report-bundle.json").exists()
+    assert (tmp_path / "product" / "exports" / "share-manifest.json").exists()
     assert "Signal Counts" in index_html
     assert "Failure Clusters" in index_html
     assert "Flaky Breakdown" in index_html
@@ -345,10 +358,95 @@ def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
     assert "Recent Comparison" in history_html
     assert 'data-filter-search="history-table"' in history_html
     assert "Smart Failure Summary" in detail_html
+    assert 'href="../executive.html"' in detail_html
+    assert 'href="../share.html"' in detail_html
     assert "Healing Events" in detail_html
     assert "Search this test" in detail_html
     assert 'data-filter-root="detail-page"' in detail_html
     assert "[data-test=&#x27;sign-in&#x27;]" in detail_html
+
+
+def test_safe_share_redacts_sidecar_exports_search_and_html_by_default(tmp_path):
+    log = tmp_path / "token-log.txt"
+    log.write_text("authorization: Bearer raw-log-token\nnormal log line\n", encoding="utf-8")
+    raw_secret = "raw-secret-value"
+    report = RunReport(
+        run_id="safe-share",
+        metadata={"session_id": "session-123", "release": "2026.07"},
+        tests=[
+            TestCaseReport(
+                id="sensitive",
+                name="test_sensitive",
+                status="failed",
+                domain="api",
+                profile="dev",
+                failure_message=f"schema validation failed token={raw_secret}",
+                metadata={
+                    "api_key": raw_secret,
+                    "authorization": "Bearer raw-auth-token",
+                    "normal": "public-value",
+                    "browser": "chromium",
+                },
+                capabilities={"cookie": "raw-cookie", "platform": "neutral"},
+                artifacts=[
+                    Artifact(
+                        name="session token log",
+                        artifact_type="log",
+                        path=str(log),
+                        metadata={"secret_note": raw_secret, "normal": "artifact-public"},
+                    )
+                ],
+            )
+        ],
+    )
+    raw_timeline = [
+        ReportingEvent(
+            event_type="custom",
+            title="Raw timeline authorization: Bearer timeline-token",
+            timestamp=report.generated_at,
+            test_id="sensitive",
+            test_name="test_sensitive",
+            metadata={"authorization": "Bearer timeline-token", "normal": "public-value"},
+        )
+    ]
+
+    sidecar = build_report_data(report, timeline_events=raw_timeline)
+
+    serialized = json.dumps(sidecar)
+    assert raw_secret not in serialized
+    assert "raw-auth-token" not in serialized
+    assert "raw-cookie" not in serialized
+    assert "timeline-token" not in serialized
+    assert "public-value" in serialized
+    assert sidecar["test_index"][0]["metadata"]["api_key"] == "[redacted]"
+    assert sidecar["test_index"][0]["metadata"]["normal"] == "public-value"
+    assert "[redacted]" in sidecar["test_index"][0]["search_text"]
+    assert sidecar["sharing"]["safe_share"]["enabled"] is True
+
+    raw_sidecar = build_report_data(report, timeline_events=raw_timeline, safe_share=False)
+    assert raw_secret in json.dumps(raw_sidecar)
+    assert raw_sidecar["sharing"]["safe_share"]["enabled"] is False
+
+    generate_reporting_product(report, tmp_path / "product", update_history_file=False)
+
+    generated_text = "\n".join(
+        [
+            (tmp_path / "product" / "report-data.json").read_text(encoding="utf-8"),
+            (tmp_path / "product" / "data" / "run-report.json").read_text(encoding="utf-8"),
+            (tmp_path / "product" / "exports" / "test-index.csv").read_text(encoding="utf-8"),
+            (tmp_path / "product" / "exports" / "report-bundle.json").read_text(encoding="utf-8"),
+            (tmp_path / "product" / "exports" / "share-manifest.json").read_text(encoding="utf-8"),
+            next((tmp_path / "product" / "tests").glob("*.html")).read_text(encoding="utf-8"),
+            (tmp_path / "product" / "share.html").read_text(encoding="utf-8"),
+        ]
+    )
+    assert raw_secret not in generated_text
+    assert "raw-auth-token" not in generated_text
+    assert "raw-cookie" not in generated_text
+    assert "raw-log-token" not in generated_text
+    assert "public-value" in generated_text
+    assert "artifact-public" in generated_text
+    assert "[redacted]" in generated_text
 
 
 def test_failure_summary_covers_known_categories():
