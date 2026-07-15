@@ -67,6 +67,18 @@ def build_timeline_events(report: RunReport) -> list[ReportingEvent]:
             )
         for step in test.steps:
             _append_step_events(events, test, step, started_at)
+        for healing_event in _healing_events(test):
+            events.append(
+                ReportingEvent(
+                    event_type="healing",
+                    title=_healing_title(healing_event),
+                    timestamp=_healing_timestamp(healing_event, started_at),
+                    test_id=test.id,
+                    test_name=test.name,
+                    status=str(healing_event.get("decision", "")),
+                    metadata=healing_event,
+                )
+            )
         for artifact in test.artifacts:
             _append_artifact_event(events, test, artifact, test.ended_at or started_at)
         events.append(
@@ -148,3 +160,33 @@ def _test_context(test: TestCaseReport) -> dict[str, Any]:
         "browser": test.metadata.get("browser"),
         "device_name": test.metadata.get("device_name"),
     }
+
+
+def _healing_events(test: TestCaseReport) -> list[dict[str, Any]]:
+    events = test.metadata.get("healing_events", [])
+    if not isinstance(events, list):
+        return []
+    return [event for event in events if isinstance(event, dict)]
+
+
+def _healing_title(event: dict[str, Any]) -> str:
+    decision = event.get("decision", "unknown")
+    action = event.get("action") or "locator"
+    selected = event.get("selected")
+    if isinstance(selected, dict):
+        candidate = selected.get("candidate")
+        if isinstance(candidate, dict) and candidate.get("value"):
+            return f"Healing {decision}: {action} -> {candidate['value']}"
+    return f"Healing {decision}: {action}"
+
+
+def _healing_timestamp(event: dict[str, Any], fallback: datetime) -> datetime:
+    value = event.get("timestamp")
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return fallback
+    return fallback

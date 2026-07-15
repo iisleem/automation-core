@@ -17,7 +17,7 @@ See [Template Repository Strategy](docs/template_strategy.md) for the product-fa
 From GitHub after the repository is published:
 
 ```bash
-pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.3.0"
+pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.4.0"
 ```
 
 For local development:
@@ -32,13 +32,14 @@ pytest
 - Config loading for YAML/JSON, environment interpolation, environment selection, and `deep_get`.
 - Logging setup with optional file logging.
 - Shared reporting product with neutral models/events/artifacts, dashboard, test details, timeline, flaky analysis, matrix views, artifacts viewer, history, plus Allure result parsing and fallback HTML summaries.
+- Runtime auto-healing foundation with neutral locator/candidate models, scoring, safety gates, JSONL audit events, and report metadata helpers.
 - Optional Allure debug attachments with graceful no-op behavior when Allure is unavailable.
 - Wait, polling, and retry helpers.
 - Data, file, structured file, text, URL, date/time, secrets, cleanup, soft assertion, security, and response timing helpers.
 
 ## Version Notes
 
-`0.3.0` adds backward-compatible helper polish for framework wrappers and a neutral smart failure summary API in reporting. It does not add browser, device, API client, or other environment-specific behavior to core.
+`0.4.0` adds the neutral runtime auto-healing foundation. It provides models, scoring, safety gates, audit serialization, and reporting hooks only. Web and mobile adapters own actual selector discovery and application.
 
 ## Boundaries
 
@@ -59,6 +60,45 @@ Core owns the neutral reporting engine. Frameworks provide adapter data:
 - API adapters enrich tests with request/response summaries, status code, latency, schema/contract validation, and sanitized payload links.
 
 The core package stores only serializable metadata and never imports Selenium, Appium, Playwright, requests, httpx, or framework clients.
+
+## Runtime Auto-Healing Foundation
+
+Core provides the environment-neutral pieces for runtime auto-healing:
+
+- `LocatorDescriptor` and `CandidateDescriptor` describe the original locator and adapter-discovered alternatives.
+- `HealingConfig` controls `disabled`, `suggest`, and `apply` modes, minimum score, ambiguity handling, allowed actions/categories, and allow/deny patterns.
+- `evaluate_healing(...)` ranks candidates from adapter-supplied signals and returns a JSON-safe `HealingResult`.
+- `append_healing_event(...)` writes JSONL audit records.
+- `add_healing_result(...)` attaches healing metadata to `TestCaseReport` so the product report timeline and test details can show attempts.
+
+The default mode is `disabled` so existing tests do not change behavior silently. Frameworks should enable `suggest`
+or `apply` explicitly in their own configuration. Core does not inspect DOM, XML, accessibility trees, drivers,
+sessions, pages, or devices.
+
+```python
+from automation_core.healing import (
+    CandidateDescriptor,
+    HealingConfig,
+    LocatorDescriptor,
+    add_healing_result,
+    evaluate_healing,
+)
+
+original = LocatorDescriptor(strategy="css", value="[data-test='login']", action="click")
+candidate = CandidateDescriptor(
+    strategy="css",
+    value="[data-test='sign-in']",
+    signals={"stable_id": 1.0, "text": 0.8},
+)
+result = evaluate_healing(
+    original,
+    [candidate],
+    HealingConfig(mode="suggest", min_score=0.75),
+    action="click",
+    test_id="login",
+)
+add_healing_result(test_report, result)
+```
 
 Generate the product report from Allure results:
 
