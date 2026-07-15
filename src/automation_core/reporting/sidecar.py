@@ -13,6 +13,7 @@ from automation_core.reporting.analysis import (
 from automation_core.reporting.events import ReportingEvent, build_timeline_events
 from automation_core.reporting.history import trend_points
 from automation_core.reporting.models import Artifact, RunReport, TestCaseReport, to_jsonable
+from automation_core.reporting.redaction import redact_payload, redact_report, redaction_manifest
 from automation_core.reporting.traversal import collect_action_retries, collect_test_artifacts, iter_steps
 
 FAILED_STATUSES = {"failed", "broken"}
@@ -24,8 +25,15 @@ def build_report_data(
     history_entries: list[dict[str, Any]] | None = None,
     timeline_events: list[ReportingEvent] | None = None,
     details: dict[str, str] | None = None,
+    safe_share: bool = True,
+    redaction: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the machine-readable product report sidecar."""
+
+    if safe_share:
+        report, redaction = redact_report(report)
+    elif redaction is None:
+        redaction = redaction_manifest(False)
 
     history = history_entries or []
     timeline = timeline_events if timeline_events is not None else build_timeline_events(report)
@@ -67,8 +75,46 @@ def build_report_data(
             "comparison": _history_comparison(summary, history),
         },
         "artifacts": _artifact_index(report),
+        "sharing": {
+            "safe_share": redaction,
+            "exports": _default_export_links(),
+        },
     }
+    if safe_share:
+        payload, payload_redaction = redact_payload(payload)
+        payload["sharing"]["safe_share"] = _merge_redaction(redaction, payload_redaction)
     return to_jsonable(payload)
+
+
+def _default_export_links() -> dict[str, str]:
+    return {
+        "sidecar_json": "report-data.json",
+        "run_report_json": "data/run-report.json",
+        "test_index_csv": "exports/test-index.csv",
+        "report_bundle_json": "exports/report-bundle.json",
+        "share_manifest_json": "exports/share-manifest.json",
+        "print_summary_html": "print-summary.html",
+        "full_report_entry": "index.html",
+    }
+
+
+def _merge_redaction(primary: dict[str, Any] | None, secondary: dict[str, Any] | None) -> dict[str, Any]:
+    primary = primary or redaction_manifest(True)
+    secondary = secondary or redaction_manifest(True)
+    counts: Counter[str] = Counter()
+    counts.update(primary.get("redacted_counts", {}))
+    counts.update(secondary.get("redacted_counts", {}))
+    patterns = list(primary.get("patterns", []))
+    for pattern in secondary.get("patterns", []):
+        if pattern not in patterns:
+            patterns.append(pattern)
+    return {
+        "enabled": bool(primary.get("enabled") or secondary.get("enabled")),
+        "replacement": primary.get("replacement") or secondary.get("replacement") or "[redacted]",
+        "patterns": patterns,
+        "redacted_categories": sorted(counts),
+        "redacted_counts": dict(sorted(counts.items())),
+    }
 
 
 def _test_index(report: RunReport, details: dict[str, str]) -> list[dict[str, Any]]:

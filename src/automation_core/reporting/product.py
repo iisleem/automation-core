@@ -4,6 +4,8 @@ import html
 import json
 import os
 import re
+from csv import DictWriter
+from io import StringIO
 from pathlib import Path
 from shutil import copy2
 from typing import Any
@@ -18,6 +20,7 @@ from automation_core.reporting.analysis import (
 from automation_core.reporting.events import ReportingEvent, build_timeline_events
 from automation_core.reporting.history import load_history, trend_points, update_history
 from automation_core.reporting.models import Artifact, RunReport, StepRecord, TestCaseReport, to_jsonable
+from automation_core.reporting.redaction import is_sensitive_name, redact_report, redact_text
 from automation_core.reporting.sidecar import build_report_data
 from automation_core.reporting.traversal import collect_action_retries, collect_test_artifacts
 from automation_core.reporting.validation import assert_valid_report
@@ -36,37 +39,56 @@ def generate_reporting_product(
     history_limit: int = 20,
     bundle_artifacts: bool = True,
     validate: bool = True,
+    safe_share: bool = True,
 ) -> Path:
     output_path = Path(output_dir)
     tests_dir = output_path / "tests"
     data_dir = output_path / "data"
     tests_dir.mkdir(parents=True, exist_ok=True)
     data_dir.mkdir(parents=True, exist_ok=True)
+    exports_dir = output_path / "exports"
+    exports_dir.mkdir(parents=True, exist_ok=True)
     if bundle_artifacts:
-        _bundle_report_artifacts(report, output_path)
+        _bundle_report_artifacts(report, output_path, safe_share=safe_share)
     if validate:
         assert_valid_report(report)
 
-    details = _write_test_pages(report, tests_dir, output_path)
-    history_entries = _history_entries(report, history_dir, update_history_file, history_limit)
-    timeline = build_timeline_events(report)
-    report_data = build_report_data(report, history_entries=history_entries, timeline_events=timeline, details=details)
+    output_report, redaction = redact_report(report, enabled=safe_share)
+    details = _write_test_pages(output_report, tests_dir, output_path, safe_share=safe_share)
+    history_entries = _history_entries(output_report, history_dir, update_history_file, history_limit)
+    timeline = build_timeline_events(output_report)
+    report_data = build_report_data(
+        report if safe_share else output_report,
+        history_entries=history_entries,
+        timeline_events=timeline,
+        details=details,
+        safe_share=safe_share,
+        redaction=redaction,
+    )
 
-    (data_dir / "run-report.json").write_text(json.dumps(report.to_dict(), indent=2), encoding="utf-8")
+    (data_dir / "run-report.json").write_text(json.dumps(output_report.to_dict(), indent=2), encoding="utf-8")
     (output_path / "report-data.json").write_text(json.dumps(report_data, indent=2), encoding="utf-8")
-    (output_path / "explore.html").write_text(_render_explore_page(report, report_data), encoding="utf-8")
-    (output_path / "timeline.html").write_text(_render_timeline_page(report, timeline), encoding="utf-8")
-    (output_path / "flaky.html").write_text(_render_flaky_page(report), encoding="utf-8")
-    (output_path / "matrix.html").write_text(_render_matrix_page(report, report_data), encoding="utf-8")
+    _write_share_exports(output_report, report_data, output_path)
+    (output_path / "executive.html").write_text(
+        _render_executive_page(output_report, history_entries, report_data), encoding="utf-8"
+    )
+    (output_path / "share.html").write_text(_render_share_page(output_report, report_data), encoding="utf-8")
+    (output_path / "print-summary.html").write_text(
+        _render_print_summary_page(output_report, history_entries, report_data), encoding="utf-8"
+    )
+    (output_path / "explore.html").write_text(_render_explore_page(output_report, report_data), encoding="utf-8")
+    (output_path / "timeline.html").write_text(_render_timeline_page(output_report, timeline), encoding="utf-8")
+    (output_path / "flaky.html").write_text(_render_flaky_page(output_report), encoding="utf-8")
+    (output_path / "matrix.html").write_text(_render_matrix_page(output_report, report_data), encoding="utf-8")
     (output_path / "history.html").write_text(
-        _render_history_page(report, history_entries, report_data), encoding="utf-8"
+        _render_history_page(output_report, history_entries, report_data), encoding="utf-8"
     )
     index_path = output_path / "index.html"
-    index_path.write_text(_render_dashboard(report, details, history_entries, report_data), encoding="utf-8")
+    index_path.write_text(_render_dashboard(output_report, details, history_entries, report_data), encoding="utf-8")
     return index_path
 
 
-def _bundle_report_artifacts(report: RunReport, output_dir: Path) -> None:
+def _bundle_report_artifacts(report: RunReport, output_dir: Path, *, safe_share: bool) -> None:
     artifacts_dir = output_dir / "artifacts"
     index = 0
     for test in report.tests:
@@ -80,9 +102,13 @@ def _bundle_report_artifacts(report: RunReport, output_dir: Path) -> None:
                 continue
             index += 1
             artifacts_dir.mkdir(parents=True, exist_ok=True)
-            destination = _artifact_destination(artifacts_dir, artifact, source, index)
+            destination = _artifact_destination(artifacts_dir, artifact, source, index, safe_share=safe_share)
             try:
-                if source.resolve() != destination.resolve():
+                if safe_share and artifact.artifact_type in TEXT_ARTIFACT_TYPES:
+                    destination.write_text(
+                        redact_text(source.read_text(encoding="utf-8", errors="replace")), encoding="utf-8"
+                    )
+                elif source.resolve() != destination.resolve():
                     copy2(source, destination)
                 artifact.metadata.setdefault("original_path", str(source))
                 artifact.metadata["bundled"] = True
@@ -93,8 +119,13 @@ def _bundle_report_artifacts(report: RunReport, output_dir: Path) -> None:
                 artifact.metadata["bundle_error"] = str(error)
 
 
-def _artifact_destination(artifacts_dir: Path, artifact: Artifact, source: Path, index: int) -> Path:
-    stem = _slug(artifact.name or source.stem)
+def _artifact_destination(
+    artifacts_dir: Path, artifact: Artifact, source: Path, index: int, *, safe_share: bool
+) -> Path:
+    name = artifact.name or source.stem
+    if safe_share and is_sensitive_name(name):
+        name = artifact.artifact_type or "artifact"
+    stem = _slug(name)
     suffix = source.suffix
     destination = artifacts_dir / f"{index:04d}-{stem}{suffix}"
     collision = 1
@@ -117,11 +148,95 @@ def _history_entries(
     return load_history(history_dir, limit=history_limit)
 
 
-def _write_test_pages(report: RunReport, tests_dir: Path, report_root: Path) -> dict[str, str]:
+def _write_share_exports(report: RunReport, report_data: dict[str, Any], output_path: Path) -> None:
+    exports_dir = output_path / "exports"
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    (exports_dir / "test-index.csv").write_text(_test_index_csv(report_data["test_index"]), encoding="utf-8")
+    bundle = {
+        "run": report_data["run"],
+        "test_index": report_data["test_index"],
+        "failure_clusters": report_data["failure_clusters"],
+        "flaky": report_data["flaky"],
+        "matrix": report_data["matrix"],
+        "timeline": report_data["timeline"],
+        "history": report_data["history"],
+        "artifacts": report_data["artifacts"],
+        "sharing": report_data["sharing"],
+    }
+    (exports_dir / "report-bundle.json").write_text(json.dumps(bundle, indent=2), encoding="utf-8")
+    manifest = {
+        "run_id": report.run_id,
+        "project_name": report.project_name,
+        "framework": report.framework,
+        "entrypoint": "index.html",
+        "pages": [
+            "index.html",
+            "executive.html",
+            "share.html",
+            "explore.html",
+            "timeline.html",
+            "flaky.html",
+            "matrix.html",
+            "history.html",
+            "print-summary.html",
+        ],
+        "exports": report_data["sharing"]["exports"],
+        "safe_share": report_data["sharing"]["safe_share"],
+        "package_guidance": "Share the full report directory so HTML pages, tests, data, exports, and artifacts stay together.",
+    }
+    (exports_dir / "share-manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+
+def _test_index_csv(test_index: list[dict[str, Any]]) -> str:
+    fields = [
+        "test_id",
+        "name",
+        "status",
+        "domain",
+        "profile",
+        "environment",
+        "duration_ms",
+        "failure_category",
+        "failure_title",
+        "detail_href",
+        "artifact_count",
+        "retry_count",
+        "action_retry_count",
+        "healing_event_count",
+    ]
+    output = StringIO()
+    writer = DictWriter(output, fieldnames=fields)
+    writer.writeheader()
+    for item in test_index:
+        failure = item.get("failure", {})
+        writer.writerow(
+            {
+                "test_id": item.get("test_id", ""),
+                "name": item.get("name", ""),
+                "status": item.get("status", ""),
+                "domain": item.get("domain", ""),
+                "profile": item.get("profile", ""),
+                "environment": item.get("environment", ""),
+                "duration_ms": item.get("duration_ms", 0),
+                "failure_category": failure.get("category", ""),
+                "failure_title": failure.get("title", ""),
+                "detail_href": item.get("detail_href", ""),
+                "artifact_count": item.get("artifact_count", 0),
+                "retry_count": item.get("retry_count", 0),
+                "action_retry_count": item.get("action_retry_count", 0),
+                "healing_event_count": item.get("healing_event_count", 0),
+            }
+        )
+    return output.getvalue()
+
+
+def _write_test_pages(report: RunReport, tests_dir: Path, report_root: Path, *, safe_share: bool) -> dict[str, str]:
     details: dict[str, str] = {}
     for index, test in enumerate(report.tests, start=1):
         filename = f"{index:04d}-{_slug(test.id or test.name)}.html"
-        (tests_dir / filename).write_text(_render_test_page(report, test, tests_dir, report_root), encoding="utf-8")
+        (tests_dir / filename).write_text(
+            _render_test_page(report, test, tests_dir, report_root, safe_share=safe_share), encoding="utf-8"
+        )
         details[test.id] = f"tests/{filename}"
     return details
 
@@ -290,7 +405,14 @@ def _render_dashboard(
     )
 
 
-def _render_test_page(report: RunReport, test: TestCaseReport, page_dir: Path, report_root: Path) -> str:
+def _render_test_page(
+    report: RunReport,
+    test: TestCaseReport,
+    page_dir: Path,
+    report_root: Path,
+    *,
+    safe_share: bool,
+) -> str:
     action_retries = collect_action_retries(test)
     artifacts = collect_test_artifacts(test)
     healing_events = _healing_events(test)
@@ -363,11 +485,195 @@ def _render_test_page(report: RunReport, test: TestCaseReport, page_dir: Path, r
 </section>
 <section data-filter-root="detail-page">
   <h2>Artifacts</h2>
-  {_artifacts_view(artifacts, page_dir, report_root)}
+  {_artifacts_view(artifacts, page_dir, report_root, safe_share=safe_share)}
 </section>
 <section data-filter-root="detail-page">
   <h2>Timeline</h2>
   {_timeline_table(timeline)}
+</section>
+""",
+    )
+
+
+def _render_executive_page(
+    report: RunReport,
+    history_entries: list[dict[str, Any]],
+    report_data: dict[str, Any],
+) -> str:
+    summary = report_data["run"]["summary"]
+    health = report_data["run"]["health"]
+    readiness = _readiness_summary(summary)
+    blockers = _executive_blockers(report_data["failure_clusters"], report_data["risk_signals"])
+    return _page(
+        "Executive Summary",
+        f"""
+<header class="hero compact">
+  <div>
+    <p class="eyebrow">{_e(report.run_id)}</p>
+    <h1>Executive Summary</h1>
+    <p>{_e(readiness["headline"])}</p>
+  </div>
+  <span class="status {summary["status"]}">{_e(summary["status"])}</span>
+</header>
+{_nav("executive")}
+<section class="share-banner">
+  {_safe_share_badge(report_data)}
+  <span>{_e(readiness["next_action"])}</span>
+</section>
+<section class="metrics">
+  {_metric("Pass Rate", f"{summary['pass_rate']}%")}
+  {_metric("Passed", summary["passed"])}
+  {_metric("Failed", summary["failed"] + summary["broken"])}
+  {_metric("Skipped", summary["skipped"])}
+  {_metric("Flaky", summary["flaky"])}
+  {_metric("Duration", _format_duration(summary["duration_ms"]))}
+</section>
+<section class="grid two">
+  <article>
+    <h2>Readiness</h2>
+    {
+            _key_values(
+                {
+                    "Headline": readiness["headline"],
+                    "Next Action": readiness["next_action"],
+                    "Pass Rate Change": _format_delta(health.get("pass_rate_delta"), suffix="%"),
+                    "Failed Change": _format_delta(health.get("failed_delta")),
+                    "Previous Run": health.get("previous_run_id") or "-",
+                }
+            )
+        }
+  </article>
+  <article>
+    <h2>Top Blockers</h2>
+    {_blocker_list(blockers)}
+  </article>
+</section>
+<section class="grid two">
+  <article>
+    <h2>Quality Signals</h2>
+    {_risk_signal_list(report_data["risk_signals"])}
+  </article>
+  <article>
+    <h2>Flaky And Retry Summary</h2>
+    {_flaky_breakdown_view(report_data["flaky"]["breakdown"])}
+    {
+            _key_values(
+                {
+                    "Test Retries": report_data["signals"]["test_retry_count"],
+                    "Action Retries": report_data["signals"]["action_retry_count"],
+                    "Healing Events": report_data["signals"]["healing_event_count"],
+                }
+            )
+        }
+  </article>
+</section>
+<section>
+  <h2>Environment Coverage</h2>
+  {_coverage_panel(report_data["aggregates"]["coverage"])}
+</section>
+<section>
+  <h2>History Trend</h2>
+  {_trend_chart(report_data["history"]["trend_points"])}
+  {_history_comparison_view(report_data["history"]["comparison"])}
+</section>
+<section class="grid three">
+  <article><h2>Executive Links</h2>{
+            _link_list(
+                {"Printable summary": "print-summary.html", "Share center": "share.html", "Dashboard": "index.html"}
+            )
+        }</article>
+  <article><h2>QA Lead Links</h2>{
+            _link_list({"Tests Explore": "explore.html", "Flaky analysis": "flaky.html", "Matrix": "matrix.html"})
+        }</article>
+  <article><h2>Developer Links</h2>{
+            _link_list(
+                {"Timeline": "timeline.html", "Report data": "report-data.json", "Artifacts": "share.html#artifacts"}
+            )
+        }</article>
+</section>
+""",
+    )
+
+
+def _render_share_page(report: RunReport, report_data: dict[str, Any]) -> str:
+    exports = report_data["sharing"]["exports"]
+    return _page(
+        "Share And Export",
+        f"""
+<header class="hero compact"><div><p class="eyebrow">{_e(report.run_id)}</p><h1>Share And Export</h1><p>Portable report assets for stakeholders and CI artifacts.</p></div></header>
+{_nav("share")}
+<section class="share-banner">
+  {_safe_share_badge(report_data)}
+  <span>Generated files are self-contained and intended for offline sharing from this report directory.</span>
+</section>
+<section class="grid three">
+  {_export_card("Full Report Package", "Use the report directory as the package root. Keep HTML, data, exports, tests, and artifacts together.", {"Entry": "index.html", "Manifest": exports["share_manifest_json"]})}
+  {_export_card("Run Data", "Machine-readable run summaries for downstream checks and dashboards.", {"Sidecar JSON": exports["sidecar_json"], "Run JSON": exports["run_report_json"], "Bundle JSON": exports["report_bundle_json"]})}
+  {_export_card("Test Index CSV", "Flat test index for spreadsheets and release notes.", {"CSV": exports["test_index_csv"]})}
+  {_export_card("Printable Summary", "Open this page and use the browser print dialog to save a PDF when needed.", {"Print Summary": exports["print_summary_html"]})}
+  {_export_card("Page And Image Export", "Capture pages with an approved local renderer when screenshots are needed for status updates.", {"Executive": "executive.html", "Dashboard": "index.html", "Matrix": "matrix.html"})}
+  {_export_card("Validation Targets", "Use the JSON sidecar and CSV export for CI validation without scraping HTML.", {"Report Data": "report-data.json", "Explore": "explore.html"})}
+</section>
+<section id="stakeholders">
+  <h2>Stakeholder Views</h2>
+  <div class="grid four">
+    {_stakeholder_card("Executive", "Release readiness, trend, top blockers, and printable summary.", {"Executive Summary": "executive.html", "Printable Summary": "print-summary.html"})}
+    {_stakeholder_card("QA Lead", "Failure clusters, flaky analysis, matrix coverage, and searchable tests.", {"Tests Explore": "explore.html", "Flaky": "flaky.html", "Matrix": "matrix.html"})}
+    {_stakeholder_card("Developer", "Failure detail, timeline events, logs, retries, and artifacts.", {"Timeline": "timeline.html", "Report Data": "report-data.json"})}
+    {_stakeholder_card("Release", "Readiness headline, pass rate, risk signals, and export bundle.", {"Executive Summary": "executive.html", "Share Manifest": exports["share_manifest_json"]})}
+  </div>
+</section>
+<section>
+  <h2>Safe Sharing Manifest</h2>
+  {_data_block(report_data["sharing"]["safe_share"])}
+</section>
+<section id="artifacts">
+  <h2>Artifact Index</h2>
+  {_artifact_index_table(report_data["artifacts"])}
+</section>
+<script type="application/json" id="report-data-json">{_json_for_script(report_data)}</script>
+""",
+    )
+
+
+def _render_print_summary_page(
+    report: RunReport,
+    history_entries: list[dict[str, Any]],
+    report_data: dict[str, Any],
+) -> str:
+    summary = report_data["run"]["summary"]
+    readiness = _readiness_summary(summary)
+    return _page(
+        "Printable Summary",
+        f"""
+<header class="hero compact"><div><p class="eyebrow">{_e(report.run_id)}</p><h1>Printable Summary</h1><p>{
+            _e(readiness["headline"])
+        }</p></div></header>
+{_nav("share")}
+<section class="print-summary">
+  <article>
+    <h2>Release Readiness</h2>
+    {
+            _key_values(
+                {
+                    "Headline": readiness["headline"],
+                    "Next Action": readiness["next_action"],
+                    "Pass Rate": f"{summary['pass_rate']}%",
+                    "Failed": summary["failed"] + summary["broken"],
+                    "Flaky": summary["flaky"],
+                    "Duration": _format_duration(summary["duration_ms"]),
+                }
+            )
+        }
+  </article>
+  <article>
+    <h2>Top Blockers</h2>
+    {_blocker_list(_executive_blockers(report_data["failure_clusters"], report_data["risk_signals"]))}
+  </article>
+  <article>
+    <h2>Trend</h2>
+    {_trend_bars(trend_points(history_entries))}
+  </article>
 </section>
 """,
     )
@@ -528,11 +834,13 @@ def _render_history_page(report: RunReport, history_entries: list[dict[str, Any]
 def _nav(active: str, *, prefix: str = "") -> str:
     items = (
         ("dashboard", "Dashboard", "index.html"),
+        ("executive", "Executive", "executive.html"),
         ("explore", "Tests", "explore.html"),
         ("timeline", "Timeline", "timeline.html"),
         ("flaky", "Flaky", "flaky.html"),
         ("matrix", "Matrix", "matrix.html"),
         ("history", "History", "history.html"),
+        ("share", "Share", "share.html"),
     )
     links = "".join(
         f'<a class="{"active" if key == active else ""}" href="{_e(prefix + href)}">{_e(label)}</a>'
@@ -571,6 +879,7 @@ def _page(title: str, body: str) -> str:
     .grid {{ display:grid; gap:16px; }}
     .grid.two {{ grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr)); }}
     .grid.three {{ grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr)); }}
+    .grid.four {{ grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr)); }}
     .chart-grid article {{ min-height:220px; }}
     .toolbar {{ display:flex; flex-wrap:wrap; gap:12px; align-items:end; padding:14px; background:#fff; border:1px solid var(--line); border-radius:8px; }}
     .toolbar label {{ display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--muted); font-weight:700; min-width:150px; }}
@@ -603,10 +912,16 @@ def _page(title: str, body: str) -> str:
     .legend {{ display:grid; gap:7px; }}
     .legend span {{ display:inline-flex; gap:7px; align-items:center; }}
     .swatch {{ width:10px; height:10px; border-radius:3px; display:inline-block; }}
-    .risk-list,.coverage-list {{ display:grid; gap:10px; }}
-    .risk {{ border-left:4px solid var(--accent-2); padding:10px 12px; background:#f8fafc; border-radius:6px; }}
+    .risk-list,.coverage-list {{ display:grid; gap:10px; min-width:0; }}
+    .risk {{ border-left:4px solid var(--accent-2); padding:10px 12px; background:#f8fafc; border-radius:6px; min-width:0; overflow:hidden; }}
     .risk.high {{ border-left-color:var(--danger); }}
     .risk.medium {{ border-left-color:var(--warn); }}
+    .risk a,.risk .muted {{ overflow-wrap:anywhere; word-break:break-word; }}
+    .share-banner {{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; padding:13px 14px; background:#edf7f4; border:1px solid #b8ded4; border-radius:8px; }}
+    .safe-badge {{ display:inline-flex; align-items:center; gap:7px; font-weight:700; color:#0f5b46; background:#dff7ed; border:1px solid #a7d9c9; border-radius:999px; padding:6px 10px; }}
+    .export-card,.stakeholder-card {{ display:grid; gap:10px; align-content:start; }}
+    .export-links {{ display:grid; gap:7px; }}
+    .print-summary {{ display:grid; gap:16px; }}
     .tag-cloud {{ display:flex; gap:8px; flex-wrap:wrap; }}
     .tag {{ background:#edf2f7; color:#263345; border-radius:999px; padding:5px 8px; font-size:12px; overflow-wrap:anywhere; }}
     .matrix-page {{ display:grid; gap:18px; }}
@@ -906,6 +1221,109 @@ def _risk_signal_list(risks: list[dict[str, Any]]) -> str:
     return f'<div class="risk-list">{"".join(items)}</div>'
 
 
+def _readiness_summary(summary: dict[str, Any]) -> dict[str, str]:
+    failed = int(summary.get("failed", 0) or 0) + int(summary.get("broken", 0) or 0)
+    skipped = int(summary.get("skipped", 0) or 0)
+    flaky = int(summary.get("flaky", 0) or 0)
+    pass_rate = float(summary.get("pass_rate", 0) or 0)
+    if failed:
+        return {
+            "headline": f"Release attention needed: {failed} failing tests and {pass_rate:g}% pass rate.",
+            "next_action": "Review top blockers, assign owners, and rerun after fixes land.",
+        }
+    if flaky:
+        return {
+            "headline": f"Release mostly ready with {flaky} flaky signals to review.",
+            "next_action": "Review flaky tests and retry signals before final sign-off.",
+        }
+    if skipped:
+        return {
+            "headline": f"Release candidate passing with {skipped} skipped tests.",
+            "next_action": "Confirm skipped coverage is accepted for this run.",
+        }
+    if summary.get("total", 0):
+        return {
+            "headline": f"Release candidate passing at {pass_rate:g}% pass rate.",
+            "next_action": "Share the summary and keep the full report package for traceability.",
+        }
+    return {
+        "headline": "No tests were captured in this run.",
+        "next_action": "Verify results collection and rerun the suite.",
+    }
+
+
+def _executive_blockers(clusters: list[dict[str, Any]], risks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    for cluster in clusters[:4]:
+        blockers.append(
+            {
+                "title": cluster.get("title", cluster.get("category", "Failure cluster")),
+                "count": cluster.get("count", 0),
+                "detail": cluster.get("detail", ""),
+            }
+        )
+    if blockers:
+        return blockers
+    for risk in risks[:4]:
+        blockers.append(
+            {
+                "title": risk.get("title", "Risk signal"),
+                "count": risk.get("count", 0),
+                "detail": "Review the linked tests and supporting artifacts.",
+            }
+        )
+    return blockers
+
+
+def _blocker_list(blockers: list[dict[str, Any]]) -> str:
+    if not blockers:
+        return '<p class="empty-state">No blockers detected.</p>'
+    items = "".join(
+        f"<li><strong>{_e(item.get('title', ''))}</strong>: {item.get('count', 0)}"
+        f'<br><span class="muted">{_e(item.get("detail", ""))}</span></li>'
+        for item in blockers
+    )
+    return f"<ul>{items}</ul>"
+
+
+def _safe_share_badge(report_data: dict[str, Any]) -> str:
+    safe_share = report_data.get("sharing", {}).get("safe_share", {})
+    label = "Safe Sharing On" if safe_share.get("enabled") else "Safe Sharing Off"
+    categories = ", ".join(safe_share.get("redacted_categories", [])) or "no sensitive categories detected"
+    return f'<span class="safe-badge">{_e(label)}</span><span class="muted">{_e(categories)}</span>'
+
+
+def _link_list(links: dict[str, str]) -> str:
+    return (
+        '<div class="export-links">'
+        + "".join(f'<a class="button" href="{_e(href)}">{_e(label)}</a>' for label, href in links.items())
+        + "</div>"
+    )
+
+
+def _export_card(title: str, body: str, links: dict[str, str]) -> str:
+    return f'<article class="export-card"><h2>{_e(title)}</h2><p>{_e(body)}</p>{_link_list(links)}</article>'
+
+
+def _stakeholder_card(title: str, body: str, links: dict[str, str]) -> str:
+    return f'<article class="stakeholder-card"><h3>{_e(title)}</h3><p>{_e(body)}</p>{_link_list(links)}</article>'
+
+
+def _artifact_index_table(artifacts: list[dict[str, Any]]) -> str:
+    rows = "\n".join(
+        f'<tr data-filter-row data-search="{_e(_row_search(item))}">'
+        f"<td>{_e(item.get('test_name', ''))}</td><td>{_e(item.get('name', ''))}</td>"
+        f"<td>{_e(item.get('artifact_type', ''))}</td><td>{_e(item.get('href') or item.get('path') or '')}</td>"
+        f"<td>{_e('yes' if item.get('bundled') else 'no')}</td></tr>"
+        for item in artifacts
+    )
+    empty = '<tr><td colspan="5">No artifacts captured.</td></tr>'
+    return (
+        '<div class="table-wrap wide"><table><thead><tr><th>Test</th><th>Name</th><th>Type</th><th>Link</th><th>Bundled</th></tr></thead>'
+        f"<tbody>{rows or empty}</tbody></table></div>"
+    )
+
+
 def _coverage_panel(coverage: dict[str, dict[str, int]]) -> str:
     if not coverage:
         return '<p class="empty-state">No coverage metadata found.</p>'
@@ -1141,25 +1559,26 @@ def _healing_selected_score(event: dict[str, Any]) -> str:
     return str(score)
 
 
-def _artifacts_view(artifacts: list[Artifact], page_dir: Path, report_root: Path) -> str:
+def _artifacts_view(artifacts: list[Artifact], page_dir: Path, report_root: Path, *, safe_share: bool) -> str:
     if not artifacts:
         return "<p>No artifacts captured.</p>"
     return "\n".join(
-        _artifact_panel(artifact, page_dir, report_root, index) for index, artifact in enumerate(artifacts, start=1)
+        _artifact_panel(artifact, page_dir, report_root, index, safe_share=safe_share)
+        for index, artifact in enumerate(artifacts, start=1)
     )
 
 
-def _artifact_panel(artifact: Artifact, page_dir: Path, report_root: Path, index: int) -> str:
+def _artifact_panel(artifact: Artifact, page_dir: Path, report_root: Path, index: int, *, safe_share: bool) -> str:
     href = _artifact_href(artifact, page_dir, report_root)
     link = f'<p><a href="{_e(href)}">{_e(href)}</a></p>' if href else ""
-    preview = _artifact_preview(artifact, href, page_dir, index)
+    preview = _artifact_preview(artifact, href, page_dir, index, safe_share=safe_share)
     return (
         f'<article data-filter-row data-search="{_e(_row_search(artifact.to_dict()))}">'
         f'<h3>{_e(artifact.name)} <span class="muted">{_e(artifact.artifact_type)}</span></h3>{link}{preview}</article>'
     )
 
 
-def _artifact_preview(artifact: Artifact, href: str, page_dir: Path, index: int) -> str:
+def _artifact_preview(artifact: Artifact, href: str, page_dir: Path, index: int, *, safe_share: bool) -> str:
     if artifact.artifact_type in IMAGE_ARTIFACT_TYPES and href:
         return f'<img class="preview" src="{_e(href)}" alt="{_e(artifact.name)}">'
     if artifact.artifact_type in VIDEO_ARTIFACT_TYPES and href:
@@ -1168,6 +1587,7 @@ def _artifact_preview(artifact: Artifact, href: str, page_dir: Path, index: int)
         text = _read_artifact_text(artifact)
         if text is None:
             return ""
+        text = redact_text(text, enabled=safe_share)
         log_id = f"log-{index}"
         lines = "".join(f"<span data-line>{_e(line)}</span>\n" for line in text.splitlines())
         return (
