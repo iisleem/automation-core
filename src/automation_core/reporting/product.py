@@ -1298,13 +1298,25 @@ def _page(title: str, body: str) -> str:
     .empty-state {{ color:var(--muted); padding:18px; background:#fff; border:1px dashed var(--line); border-radius:8px; }}
     img.preview {{ max-width:100%; border:1px solid var(--line); border-radius:6px; }}
     video {{ max-width:100%; }}
-    a {{ color:#0f5b99; }}
+    a {{ color:#0f5b99; overflow-wrap:anywhere; word-break:break-word; }}
+    li {{ min-width:0; overflow-wrap:anywhere; word-break:break-word; }}
     .muted {{ color:var(--muted); }}
     [hidden] {{ display:none !important; }}
     @media (max-width:720px) {{
       .hero {{ flex-direction:column; }}
       .toolbar label {{ flex:1 1 100%; }}
-      .table-wrap.wide table {{ min-width:860px; }}
+      .table-wrap.wide {{ overflow-x:visible; }}
+      .table-wrap.wide table {{ min-width:0; border:0; background:transparent; table-layout:auto; }}
+      .table-wrap.wide thead {{ display:none; }}
+      .table-wrap.wide tbody,.table-wrap.wide tr,.table-wrap.wide td {{ display:block; width:100%; }}
+      .table-wrap.wide tr {{ margin:0 0 12px; border:1px solid var(--line); border-radius:8px; background:#fff; padding:8px 10px; }}
+      .table-wrap.wide td {{ border-bottom:1px solid #e9edf2; padding:8px 0; }}
+      .table-wrap.wide td:last-child {{ border-bottom:0; }}
+      .table-wrap.wide td::before {{ content:attr(data-label); display:block; margin-bottom:3px; color:var(--muted); font-size:11px; font-weight:700; text-transform:uppercase; }}
+      .table-wrap.wide td[colspan]::before {{ display:none; }}
+      .table-wrap.wide .status {{ white-space:normal; }}
+      .hbar-label,.truncate {{ white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere; }}
+      .bar,.hbar-track {{ min-width:0; width:100%; }}
       .hbar-row {{ grid-template-columns:1fr; }}
     }}
   </style>
@@ -1331,6 +1343,7 @@ def _page(title: str, body: str) -> str:
       }});
     }}
     function setupGenericFilters() {{
+      hydrateResponsiveTables();
       document.querySelectorAll('[data-filter-search]').forEach((input) => {{
         const scope = input.dataset.filterSearch;
         input.addEventListener('input', () => applyFilterScope(scope));
@@ -1352,6 +1365,17 @@ def _page(title: str, body: str) -> str:
           document.body.dataset.matrixView = matrixView.value;
         }});
       }}
+    }}
+    function hydrateResponsiveTables(scope) {{
+      const root = scope || document;
+      root.querySelectorAll('.table-wrap.wide table').forEach((table) => {{
+        const headers = Array.from(table.querySelectorAll('thead th')).map((header) => header.textContent.trim());
+        table.querySelectorAll('tbody tr').forEach((row) => {{
+          Array.from(row.children).forEach((cell, index) => {{
+            if (cell.tagName === 'TD' && !cell.dataset.label) cell.dataset.label = headers[index] || '';
+          }});
+        }});
+      }});
     }}
     function countBy(items, fn) {{
       return items.reduce((acc, item) => {{
@@ -1407,6 +1431,7 @@ def _page(title: str, body: str) -> str:
       }}
       root.className = 'table-wrap wide';
       root.innerHTML = `<table><thead><tr><th>Status</th><th>Test</th><th>Domain</th><th>Profile</th><th>Environment</th><th>Duration</th><th>Failure</th><th>Signals</th></tr></thead><tbody>${{filtered.map((item) => `<tr><td><span class="status ${{item.status}}">${{item.status}}</span></td><td><a href="${{item.detail_href}}">${{item.name}}</a><br><span class="muted">${{item.full_name || item.test_id}}</span></td><td>${{item.domain || '-'}}</td><td>${{item.profile || '-'}}</td><td>${{item.environment || '-'}}</td><td>${{Math.round(item.duration_ms)}} ms</td><td>${{item.failure.title}}</td><td>R:${{item.retry_count}} A:${{item.action_retry_count}} H:${{item.healing_event_count}} Art:${{item.artifact_count}}</td></tr>`).join('') || '<tr><td colspan="8">No tests match the filters.</td></tr>'}}</tbody></table>`;
+      hydrateResponsiveTables(root);
     }}
     function setupExplore() {{
       const dataNode = document.getElementById('report-data-json');
