@@ -2,6 +2,13 @@ from __future__ import annotations
 
 import json
 
+from automation_core.healing import (
+    CandidateDescriptor,
+    HealingConfig,
+    LocatorDescriptor,
+    add_healing_result,
+    evaluate_healing,
+)
 from automation_core.reporting import (
     Artifact,
     EventRecorder,
@@ -10,6 +17,7 @@ from automation_core.reporting import (
     StepRecord,
     TestCaseReport,
     assert_valid_report,
+    build_report_data,
     build_timeline_events,
     classify_failure,
     collect_action_retries,
@@ -78,6 +86,7 @@ def test_reporting_product_generates_dashboard_details_timeline_matrix_and_histo
     assert (tmp_path / "product" / "flaky.html").exists()
     assert (tmp_path / "product" / "matrix.html").exists()
     assert (tmp_path / "product" / "history.html").exists()
+    assert (tmp_path / "product" / "report-data.json").exists()
     assert (tmp_path / "product" / "data" / "run-report.json").exists()
     detail_pages = list((tmp_path / "product" / "tests").glob("*.html"))
     assert len(detail_pages) == 2
@@ -178,6 +187,7 @@ def test_matrix_summary_respects_custom_dimensions():
                 name="test_api",
                 status="failed",
                 domain="api",
+                failure_message="schema validation failed",
                 metadata={"platform_version": "v2", "context": ["dev", "contract"]},
             ),
         ],
@@ -189,7 +199,114 @@ def test_matrix_summary_respects_custom_dimensions():
     assert summary["context"]["WEBVIEW"]["passed"] == 1
     assert summary["context"]["contract"]["failed"] == 1
     assert summary["domain"]["api"]["failed"] == 1
+    assert summary["domain"]["api"]["pass_rate"] == 0
+    assert summary["domain"]["api"]["failure_categories"] == {"api_contract_mismatch": 1}
     assert summary["status"]["failed"]["failed"] == 1
+
+
+def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
+    history_dir = tmp_path / "history"
+    log = tmp_path / "failure.log"
+    log.write_text("schema validation failed\npayload id mismatch\n", encoding="utf-8")
+    previous = RunReport(
+        run_id="previous-run",
+        tests=[
+            TestCaseReport(id="old-pass", name="test_old_pass", status="passed", duration_ms=100),
+            TestCaseReport(id="old-fail", name="test_old_fail", status="failed", duration_ms=200),
+        ],
+    )
+    generate_reporting_product(previous, tmp_path / "previous-product", history_dir=history_dir)
+
+    healed = TestCaseReport(
+        id="login",
+        name="test_login",
+        status="passed",
+        profile="chromium",
+        duration_ms=1200,
+        retries=[
+            RetryAttempt(attempt=1, status="failed", reason="timeout", duration_ms=400),
+            RetryAttempt(attempt=2, status="passed", duration_ms=800),
+        ],
+    )
+    result = evaluate_healing(
+        LocatorDescriptor(strategy="css", value="[data-test='login']", action="click"),
+        [CandidateDescriptor(strategy="css", value="[data-test='sign-in']", signals={"stable_id": 1.0})],
+        HealingConfig(mode="apply", min_score=0.7),
+        action="click",
+        test_id="login",
+    )
+    add_healing_result(healed, result)
+
+    action_flaky = TestCaseReport(
+        id="search",
+        name="test_search",
+        status="passed",
+        profile="chromium",
+        duration_ms=1500,
+        action_retries=[
+            RetryAttempt(attempt=1, retry_type="action", action="type search", status="failed"),
+            RetryAttempt(attempt=2, retry_type="action", action="type search", status="passed"),
+        ],
+    )
+    failed = TestCaseReport(
+        id="contract",
+        name="test_contract",
+        status="failed",
+        domain="api",
+        profile="dev",
+        duration_ms=900,
+        failure_message="schema validation failed",
+        metadata={"api_profile": "dev"},
+        artifacts=[Artifact(name="failure log", artifact_type="log", path=str(log))],
+    )
+    slow = TestCaseReport(id="slow", name="test_slow", status="passed", profile="dev", duration_ms=35_000)
+    report = RunReport(
+        run_id="current-run",
+        project_name="automation-core",
+        framework="pytest",
+        matrix_dimensions=["profile", "api_profile", "domain"],
+        tests=[healed, action_flaky, failed, slow],
+    )
+
+    generate_reporting_product(report, tmp_path / "product", history_dir=history_dir)
+
+    sidecar = json.loads((tmp_path / "product" / "report-data.json").read_text(encoding="utf-8"))
+    assert sidecar["run"]["summary"]["pass_rate"] == 75.0
+    assert sidecar["run"]["health"]["previous_run_id"] == "previous-run"
+    assert sidecar["run"]["health"]["pass_rate_delta"] == 25.0
+    assert sidecar["signals"]["artifact_count"] == 1
+    assert sidecar["signals"]["action_retry_count"] == 2
+    assert sidecar["signals"]["test_retry_count"] == 2
+    assert sidecar["signals"]["healing_decisions"] == {"applied": 1}
+    assert sidecar["flaky"]["breakdown"]["test_retry_flaky"] == 1
+    assert sidecar["flaky"]["breakdown"]["action_retry_flaky"] == 1
+    assert sidecar["flaky"]["breakdown"]["always_failing"] == 1
+    assert sidecar["flaky"]["breakdown"]["slow_but_passing"] == 1
+    assert sidecar["failure_clusters"][0]["category"] == "api_contract_mismatch"
+    assert sidecar["matrix"]["api_profile"]["dev"]["failure_categories"] == {"api_contract_mismatch": 1}
+    assert sidecar["timeline"]["event_counts"]["healing"] == 1
+    assert sidecar["timeline"]["event_counts"]["action_retry"] == 2
+    assert sidecar["history"]["comparison"]["previous_run_id"] == "previous-run"
+    assert sidecar["artifacts"][0]["href"].startswith("artifacts/")
+    assert sidecar == build_report_data(report, history_entries=json.loads((history_dir / "index.json").read_text()))
+    json.dumps(sidecar)
+
+    index_html = (tmp_path / "product" / "index.html").read_text(encoding="utf-8")
+    matrix_html = (tmp_path / "product" / "matrix.html").read_text(encoding="utf-8")
+    history_html = (tmp_path / "product" / "history.html").read_text(encoding="utf-8")
+    detail_html = next(
+        page for page in (tmp_path / "product" / "tests").glob("*.html") if "login" in page.name
+    ).read_text(encoding="utf-8")
+    assert "Run Health" in index_html
+    assert "Signal Counts" in index_html
+    assert "Failure Clusters" in index_html
+    assert "Flaky Breakdown" in index_html
+    assert "Pass Rate" in matrix_html
+    assert "api_contract_mismatch: 1" in matrix_html
+    assert "Recent Comparison" in history_html
+    assert "Smart Failure Summary" in detail_html
+    assert "Healing Events" in detail_html
+    assert "[data-test=&#x27;sign-in&#x27;]" in detail_html
 
 
 def test_failure_summary_covers_known_categories():

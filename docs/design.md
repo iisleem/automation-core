@@ -128,6 +128,7 @@ report = RunReport(
 - `flaky.html`: flaky/slow/failing analysis.
 - `matrix.html`: profile/browser/device/environment comparison.
 - `history.html`: history/trend من `reports/history`.
+- `report-data.json`: JSON-safe sidecar للـ dashboard insights, clusters, matrix/history, timeline counts, and artifact index.
 - `data/run-report.json`: neutral JSON للـ run الحالي.
 
 Local artifacts are bundled by default under `artifacts/` inside the generated report:
@@ -243,8 +244,8 @@ Modes:
   pattern gates.
 
 The reporting timeline reads `healing_events` metadata and renders each healing attempt as a timeline event. Test
-detail pages already display the full metadata block, so adapters can expose the selected candidate, score, reasons,
-and rejection details without custom framework-specific report code.
+detail pages render healing attempts as a first-class table with mode, decision, selected candidate, score, and
+reason. The raw metadata remains available for deeper inspection without custom framework-specific report code.
 
 ### Matrix generalization
 
@@ -277,6 +278,9 @@ report.matrix_dimensions = ["environment", "profile", "browser", "platform_versi
 
 Each dimension can resolve from direct `TestCaseReport` fields, `metadata`, `capabilities`, or labels.
 
+Matrix rows include total/pass/fail/skip counts, pass rate, and failure category counts when failed or broken tests
+exist in that bucket.
+
 ### Smart failure classification
 
 Core يقدم classifier مبدئي rule-based على `failure_message`, `failure_trace`, وmetadata:
@@ -301,8 +305,24 @@ Core يقدم classifier مبدئي rule-based على `failure_message`, `failur
 - flaky count trend
 - slowest tests عبر الوقت
 - failure category frequency
+- recent run comparison deltas in the HTML report and `report-data.json`
 
 الـ history في core لا يحتاج DB ولا service خارجي؛ مجرد files قابلة للـ gitignore أو upload كـ CI artifact.
+
+### Machine-readable sidecar
+
+`generate_reporting_product(...)` writes `report-data.json` next to `index.html`. This file is intentionally
+JSON-safe and can be used by framework smoke checks, documentation screenshot scripts, or CI artifact validation.
+It includes:
+
+- run summary and run health deltas from history when available
+- top slow tests
+- failure clusters using `failure_summary(...)`
+- flaky breakdown for test retry flaky, action retry flaky, always failing, and slow passing tests
+- matrix summary with pass rate and failure category counts
+- timeline event counts and event details
+- history trend points and recent comparison
+- artifact index with bundled hrefs after local artifact copying
 
 ## Boundaries
 

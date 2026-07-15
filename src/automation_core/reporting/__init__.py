@@ -29,6 +29,7 @@ from automation_core.reporting.models import Artifact, RetryAttempt, RunReport, 
 from automation_core.reporting.opener import open_report
 from automation_core.reporting.product import generate_reporting_product
 from automation_core.reporting.recorder import EventRecorder
+from automation_core.reporting.sidecar import build_report_data
 from automation_core.reporting.traversal import (
     collect_action_retries,
     collect_step_artifacts,
@@ -53,6 +54,7 @@ __all__ = [
     "attach_json",
     "attach_text",
     "build_timeline_events",
+    "build_report_data",
     "classify_failure",
     "collect_action_retries",
     "collect_step_artifacts",
