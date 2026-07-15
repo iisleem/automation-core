@@ -374,13 +374,16 @@ environment coverage for release stakeholders. The Share page provides stakehold
 status, package guidance, artifact index, and generated exports:
 
 - `exports/test-index.csv`
+- `exports/test-index.xlsx`
+- `exports/executive-summary.docx`
+- `exports/share-card.svg`
 - `exports/report-bundle.json`
 - `exports/share-manifest.json`
 - `print-summary.html`
 
 Safe sharing is enabled by default for generated public-facing outputs. Sensitive values matching neutral key/name
 patterns such as `token`, `secret`, `password`, `authorization`, `cookie`, `api_key`, `bearer`, and `session` are
-replaced with `[redacted]` in HTML, sidecar/search text, `data/run-report.json`, CSV, and JSON export summaries.
+replaced with `[redacted]` in HTML, sidecar/search text, `data/run-report.json`, CSV/XLSX/DOCX/SVG exports, and JSON export summaries.
 The data shape is preserved; values are redacted rather than removing keys. Internal callers can opt out with
 `safe_share=False` when raw diagnostics are required.
 

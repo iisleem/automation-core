@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import zipfile
 
 from automation_core.healing import (
     CandidateDescriptor,
@@ -332,8 +333,25 @@ def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
     assert "Safe Sharing" in share_html
     assert (tmp_path / "product" / "print-summary.html").exists()
     assert (tmp_path / "product" / "exports" / "test-index.csv").exists()
+    assert (tmp_path / "product" / "exports" / "test-index.xlsx").exists()
+    assert (tmp_path / "product" / "exports" / "executive-summary.docx").exists()
+    assert (tmp_path / "product" / "exports" / "share-card.svg").exists()
     assert (tmp_path / "product" / "exports" / "report-bundle.json").exists()
     assert (tmp_path / "product" / "exports" / "share-manifest.json").exists()
+    manifest = json.loads((tmp_path / "product" / "exports" / "share-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["exports"]["test_index_xlsx"] == "exports/test-index.xlsx"
+    assert manifest["exports"]["executive_summary_docx"] == "exports/executive-summary.docx"
+    assert manifest["exports"]["share_card_svg"] == "exports/share-card.svg"
+    assert "Excel Workbook" in share_html
+    assert "Word Summary" in share_html
+    assert "Share Card SVG" in share_html
+    with zipfile.ZipFile(tmp_path / "product" / "exports" / "test-index.xlsx") as workbook:
+        assert "xl/worksheets/sheet1.xml" in workbook.namelist()
+        assert "test_login" in workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
+    with zipfile.ZipFile(tmp_path / "product" / "exports" / "executive-summary.docx") as document:
+        assert "word/document.xml" in document.namelist()
+        assert "Automation Report Executive Summary" in document.read("word/document.xml").decode("utf-8")
+    assert "<svg" in (tmp_path / "product" / "exports" / "share-card.svg").read_text(encoding="utf-8")
     assert "Signal Counts" in index_html
     assert "Failure Clusters" in index_html
     assert "Flaky Breakdown" in index_html
@@ -429,11 +447,19 @@ def test_safe_share_redacts_sidecar_exports_search_and_html_by_default(tmp_path)
 
     generate_reporting_product(report, tmp_path / "product", update_history_file=False)
 
+    with zipfile.ZipFile(tmp_path / "product" / "exports" / "test-index.xlsx") as workbook:
+        workbook_xml = workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
+    with zipfile.ZipFile(tmp_path / "product" / "exports" / "executive-summary.docx") as document:
+        document_xml = document.read("word/document.xml").decode("utf-8")
+
     generated_text = "\n".join(
         [
             (tmp_path / "product" / "report-data.json").read_text(encoding="utf-8"),
             (tmp_path / "product" / "data" / "run-report.json").read_text(encoding="utf-8"),
             (tmp_path / "product" / "exports" / "test-index.csv").read_text(encoding="utf-8"),
+            workbook_xml,
+            document_xml,
+            (tmp_path / "product" / "exports" / "share-card.svg").read_text(encoding="utf-8"),
             (tmp_path / "product" / "exports" / "report-bundle.json").read_text(encoding="utf-8"),
             (tmp_path / "product" / "exports" / "share-manifest.json").read_text(encoding="utf-8"),
             next((tmp_path / "product" / "artifacts").iterdir()).read_text(encoding="utf-8"),
