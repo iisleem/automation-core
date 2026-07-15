@@ -281,7 +281,7 @@ def _render_dashboard(
 </section>
 <section>
   <h2>Tests</h2>
-  <div class="table-wrap"><table>
+  <div class="table-wrap wide"><table>
     <thead><tr><th>Status</th><th>Test</th><th>Profile</th><th>Duration</th><th>Failure</th></tr></thead>
     <tbody>{rows or '<tr><td colspan="5">No tests found.</td></tr>'}</tbody>
   </table></div>
@@ -519,7 +519,7 @@ def _render_history_page(report: RunReport, history_entries: list[dict[str, Any]
 </section>
 <section>
   <h2>Runs</h2>
-  <div class="table-wrap"><table id="history-table"><thead><tr><th>Run Time</th><th>Run ID</th><th>Pass Rate</th><th>Flaky</th><th>Failed</th><th>Duration</th></tr></thead><tbody>{rows or '<tr><td colspan="6">No history yet.</td></tr>'}</tbody></table></div>
+  <div class="table-wrap wide"><table id="history-table"><thead><tr><th>Run Time</th><th>Run ID</th><th>Pass Rate</th><th>Flaky</th><th>Failed</th><th>Duration</th></tr></thead><tbody>{rows or '<tr><td colspan="6">No history yet.</td></tr>'}</tbody></table></div>
 </section>
 """,
     )
@@ -563,7 +563,7 @@ def _page(title: str, body: str) -> str:
     .app-nav a {{ color:#0f5b99; font-weight:700; text-decoration:none; padding:8px 10px; border-radius:8px; }}
     .app-nav a.active {{ background:#e7f3ff; color:#0b4d83; }}
     section {{ margin:22px clamp(18px,4vw,42px); max-width:100%; }}
-    article {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; min-width:0; }}
+    article {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; min-width:0; max-width:100%; overflow:hidden; }}
     .metrics {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:12px; }}
     .metrics.compact {{ margin-bottom:12px; }}
     .metric {{ background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; min-width:0; }}
@@ -578,10 +578,13 @@ def _page(title: str, body: str) -> str:
     input,select,button,.button {{ border:1px solid #cbd5e1; border-radius:8px; padding:9px 10px; font:inherit; background:#fff; color:var(--ink); max-width:100%; }}
     .button {{ display:inline-flex; align-items:center; text-decoration:none; font-weight:700; color:#0f5b99; cursor:pointer; }}
     .result-strip {{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; }}
-    .table-wrap {{ width:100%; overflow-x:auto; border-radius:8px; }}
-    table {{ border-collapse:collapse; width:100%; min-width:720px; background:#fff; border:1px solid var(--line); table-layout:auto; }}
-    th,td {{ border-bottom:1px solid #e9edf2; padding:10px; text-align:left; vertical-align:top; overflow-wrap:anywhere; word-break:break-word; }}
+    .table-wrap {{ width:100%; max-width:100%; overflow-x:auto; border-radius:8px; }}
+    .table-wrap.wide table {{ min-width:720px; table-layout:auto; }}
+    table {{ border-collapse:collapse; width:100%; min-width:0; background:#fff; border:1px solid var(--line); table-layout:fixed; }}
+    th,td {{ border-bottom:1px solid #e9edf2; padding:10px; text-align:left; vertical-align:top; overflow-wrap:anywhere; word-break:break-word; min-width:0; }}
     th {{ background:#eef2f6; color:#263345; }}
+    .kv-table th {{ width:34%; max-width:180px; }}
+    .kv-table td {{ width:66%; }}
     pre {{ white-space:pre-wrap; overflow:auto; background:#f4f6f8; border:1px solid #e1e6ed; border-radius:6px; padding:10px; max-width:100%; }}
     details {{ margin-top:10px; }}
     summary {{ cursor:pointer; color:#0f5b99; font-weight:700; }}
@@ -627,7 +630,7 @@ def _page(title: str, body: str) -> str:
     @media (max-width:720px) {{
       .hero {{ flex-direction:column; }}
       .toolbar label {{ flex:1 1 100%; }}
-      table {{ min-width:620px; }}
+      .table-wrap.wide table {{ min-width:620px; }}
       .hbar-row {{ grid-template-columns:1fr; }}
     }}
   </style>
@@ -728,7 +731,7 @@ def _page(title: str, body: str) -> str:
         root.innerHTML = filtered.map((item) => `<article class="test-card"><span class="status ${{item.status}}">${{item.status}}</span><h3><a href="${{item.detail_href}}">${{item.name}}</a></h3><p class="muted">${{item.full_name || item.test_id}}</p><p>${{item.failure.title}}</p><p class="muted">${{Math.round(item.duration_ms)}} ms · ${{item.profile || item.environment || '-'}}</p></article>`).join('') || '<p class="empty-state">No tests match the filters.</p>';
         return;
       }}
-      root.className = 'table-wrap';
+      root.className = 'table-wrap wide';
       root.innerHTML = `<table><thead><tr><th>Status</th><th>Test</th><th>Domain</th><th>Profile</th><th>Environment</th><th>Duration</th><th>Failure</th><th>Signals</th></tr></thead><tbody>${{filtered.map((item) => `<tr><td><span class="status ${{item.status}}">${{item.status}}</span></td><td><a href="${{item.detail_href}}">${{item.name}}</a><br><span class="muted">${{item.full_name || item.test_id}}</span></td><td>${{item.domain || '-'}}</td><td>${{item.profile || '-'}}</td><td>${{item.environment || '-'}}</td><td>${{Math.round(item.duration_ms)}} ms</td><td>${{item.failure.title}}</td><td>R:${{item.retry_count}} A:${{item.action_retry_count}} H:${{item.healing_event_count}} Art:${{item.artifact_count}}</td></tr>`).join('') || '<tr><td colspan="8">No tests match the filters.</td></tr>'}}</tbody></table>`;
     }}
     function setupExplore() {{
@@ -1001,7 +1004,7 @@ def _analysis_table(items: list[dict[str, Any]], *, table_id: str = "analysis-ta
     )
     empty_row = '<tr><td colspan="5">No flaky signals found.</td></tr>'
     return (
-        f'<div class="table-wrap"><table id="{_e(table_id)}"><thead><tr><th>Category</th><th>Test</th><th>Status</th><th>Duration</th><th>Reason</th></tr></thead>'
+        f'<div class="table-wrap wide"><table id="{_e(table_id)}"><thead><tr><th>Category</th><th>Test</th><th>Status</th><th>Duration</th><th>Reason</th></tr></thead>'
         f"<tbody>{rows or empty_row}</tbody></table></div>"
     )
 
@@ -1025,7 +1028,7 @@ def _timeline_table(events: list[ReportingEvent], *, table_id: str = "timeline-t
     )
     empty_row = '<tr><td colspan="6">No timeline events.</td></tr>'
     return (
-        f'<div class="table-wrap"><table id="{_e(table_id)}"><thead><tr><th>Time</th><th>Event</th><th>Test</th><th>Title</th><th>Status</th><th>Duration</th></tr></thead>'
+        f'<div class="table-wrap wide"><table id="{_e(table_id)}"><thead><tr><th>Time</th><th>Event</th><th>Test</th><th>Title</th><th>Status</th><th>Duration</th></tr></thead>'
         f"<tbody>{rows or empty_row}</tbody></table></div>"
     )
 
@@ -1039,7 +1042,7 @@ def _matrix_table(values: dict[str, dict[str, Any]]) -> str:
         for name, counts in values.items()
     )
     return (
-        '<div class="table-wrap matrix-table"><table><thead><tr><th>Name</th><th>Total</th><th>Passed</th><th>Failed</th><th>Skipped</th>'
+        '<div class="table-wrap wide matrix-table"><table><thead><tr><th>Name</th><th>Total</th><th>Passed</th><th>Failed</th><th>Skipped</th>'
         "<th>Pass Rate</th><th>Failure Categories</th></tr></thead><tbody>" + rows + "</tbody></table></div>"
     )
 
@@ -1084,8 +1087,9 @@ def _retry_table(retries: list[Any]) -> str:
     )
     empty_row = '<tr><td colspan="6">No retries.</td></tr>'
     return (
+        '<div class="table-wrap wide">'
         "<table><thead><tr><th>Attempt</th><th>Type</th><th>Action</th><th>Status</th><th>Duration</th><th>Reason</th></tr></thead>"
-        f"<tbody>{rows or empty_row}</tbody></table>"
+        f"<tbody>{rows or empty_row}</tbody></table></div>"
     )
 
 
@@ -1100,8 +1104,9 @@ def _healing_table(events: list[dict[str, Any]]) -> str:
         for event in events
     )
     return (
+        '<div class="table-wrap wide">'
         "<table><thead><tr><th>Mode</th><th>Decision</th><th>Action</th><th>Selected</th>"
-        "<th>Score</th><th>Reason</th></tr></thead><tbody>" + rows + "</tbody></table>"
+        "<th>Score</th><th>Reason</th></tr></thead><tbody>" + rows + "</tbody></table></div>"
     )
 
 
@@ -1214,9 +1219,9 @@ def _trend_bars(points: list[dict[str, Any]]) -> str:
         for point in points[-8:]
     )
     return (
-        "<table><thead><tr><th>Run</th><th>Pass Rate</th><th>%</th><th>Flaky</th><th>Failed</th></tr></thead><tbody>"
+        '<div class="table-wrap"><table><thead><tr><th>Run</th><th>Pass Rate</th><th>%</th><th>Flaky</th><th>Failed</th></tr></thead><tbody>'
         + rows
-        + "</tbody></table>"
+        + "</tbody></table></div>"
     )
 
 
@@ -1239,7 +1244,7 @@ def _history_comparison_view(comparison: dict[str, Any]) -> str:
 
 def _key_values(values: dict[str, Any]) -> str:
     rows = "".join(f"<tr><th>{_e(key)}</th><td>{_e(value)}</td></tr>" for key, value in values.items())
-    return f"<table>{rows}</table>"
+    return f'<div class="table-wrap"><table class="kv-table">{rows}</table></div>'
 
 
 def _data_block(value: dict[str, Any]) -> str:
