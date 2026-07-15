@@ -123,12 +123,13 @@ report = RunReport(
 `generate_reporting_product(report, output_dir)` يكتب:
 
 - `index.html`: dashboard رئيسي.
+- `explore.html`: searchable Tests Explore page with filters, sorting, and filtered charts.
 - `tests/*.html`: test details.
 - `timeline.html`: chronological events.
 - `flaky.html`: flaky/slow/failing analysis.
 - `matrix.html`: profile/browser/device/environment comparison.
 - `history.html`: history/trend من `reports/history`.
-- `report-data.json`: JSON-safe sidecar للـ dashboard insights, clusters, matrix/history, timeline counts, and artifact index.
+- `report-data.json`: JSON-safe sidecar للـ dashboard insights, test index, chart aggregates, clusters, matrix/history, timeline counts, and artifact index.
 - `data/run-report.json`: neutral JSON للـ run الحالي.
 
 Local artifacts are bundled by default under `artifacts/` inside the generated report:
@@ -316,13 +317,27 @@ JSON-safe and can be used by framework smoke checks, documentation screenshot sc
 It includes:
 
 - run summary and run health deltas from history when available
+- test index records with detail hrefs, normalized searchable text, duration buckets, retry/artifact/healing flags, and neutral metadata summaries
+- chart-ready aggregates for status distribution, duration buckets, failure categories, retry signals, artifact types, coverage, and filter options
 - top slow tests
 - failure clusters using `failure_summary(...)`
 - flaky breakdown for test retry flaky, action retry flaky, always failing, and slow passing tests
 - matrix summary with pass rate and failure category counts
 - timeline event counts and event details
 - history trend points and recent comparison
+- risk signals and environment/execution coverage dimensions when metadata is available
 - artifact index with bundled hrefs after local artifact copying
+
+### Enterprise static report experience
+
+The product report remains a portable static artifact: `index.html` works from local files or CI artifacts without a
+server or external CDN. The shared shell links Dashboard, Tests, Timeline, Flaky, Matrix, and History consistently.
+Pages include self-contained CSS/JavaScript for search, filtering, sorting, charts, and matrix view toggles.
+
+The Dashboard includes status distribution, duration distribution, slowest tests, failure category, retry signal,
+artifact type, and history trend charts. The Tests Explore page uses the sidecar test index for global search,
+filters, sorting, table/card views, and filtered chart summaries. Matrix pages use overflow-safe full-width sections
+with heatmap cards plus tables so long dimension values do not break the layout.
 
 ## Boundaries
 
