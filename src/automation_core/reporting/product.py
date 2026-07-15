@@ -13,12 +13,12 @@ from automation_core.reporting.analysis import (
     failure_summary,
     fastest_slowest_tests,
     flaky_analysis,
-    matrix_summary,
     summarize_run,
 )
 from automation_core.reporting.events import ReportingEvent, build_timeline_events
 from automation_core.reporting.history import load_history, trend_points, update_history
 from automation_core.reporting.models import Artifact, RunReport, StepRecord, TestCaseReport, to_jsonable
+from automation_core.reporting.sidecar import build_report_data
 from automation_core.reporting.traversal import collect_action_retries, collect_test_artifacts
 from automation_core.reporting.validation import assert_valid_report
 
@@ -50,14 +50,18 @@ def generate_reporting_product(
     details = _write_test_pages(report, tests_dir, output_path)
     history_entries = _history_entries(report, history_dir, update_history_file, history_limit)
     timeline = build_timeline_events(report)
+    report_data = build_report_data(report, history_entries=history_entries, timeline_events=timeline)
 
     (data_dir / "run-report.json").write_text(json.dumps(report.to_dict(), indent=2), encoding="utf-8")
+    (output_path / "report-data.json").write_text(json.dumps(report_data, indent=2), encoding="utf-8")
     (output_path / "timeline.html").write_text(_render_timeline_page(report, timeline), encoding="utf-8")
     (output_path / "flaky.html").write_text(_render_flaky_page(report), encoding="utf-8")
-    (output_path / "matrix.html").write_text(_render_matrix_page(report), encoding="utf-8")
-    (output_path / "history.html").write_text(_render_history_page(report, history_entries), encoding="utf-8")
+    (output_path / "matrix.html").write_text(_render_matrix_page(report, report_data), encoding="utf-8")
+    (output_path / "history.html").write_text(
+        _render_history_page(report, history_entries, report_data), encoding="utf-8"
+    )
     index_path = output_path / "index.html"
-    index_path.write_text(_render_dashboard(report, details, history_entries), encoding="utf-8")
+    index_path.write_text(_render_dashboard(report, details, history_entries, report_data), encoding="utf-8")
     return index_path
 
 
@@ -125,11 +129,14 @@ def _render_dashboard(
     report: RunReport,
     details: dict[str, str],
     history_entries: list[dict[str, Any]],
+    report_data: dict[str, Any],
 ) -> str:
     summary = summarize_run(report)
     speed = fastest_slowest_tests(report)
     flaky = flaky_analysis(report)
     trend = trend_points(history_entries)
+    health = report_data["run"]["health"]
+    signals = report_data["signals"]
     rows = "\n".join(_test_row(test, details.get(test.id, "#")) for test in report.tests)
 
     return _page(
@@ -156,7 +163,39 @@ def _render_dashboard(
   {_metric("Failed", summary["failed"] + summary["broken"])}
   {_metric("Skipped", summary["skipped"])}
   {_metric("Flaky", summary["flaky"])}
+  {_metric("Pass Rate", f"{summary['pass_rate']}%")}
   {_metric("Duration", _format_duration(summary["duration_ms"]))}
+</section>
+<section class="grid two">
+  <article>
+    <h2>Run Health</h2>
+    {
+            _key_values(
+                {
+                    "Pass Rate": f"{health['pass_rate']}%",
+                    "Pass Rate Change": _format_delta(health.get("pass_rate_delta"), suffix="%"),
+                    "Failed Change": _format_delta(health.get("failed_delta")),
+                    "Flaky Change": _format_delta(health.get("flaky_delta")),
+                    "Duration Change": _format_duration_delta(health.get("duration_delta_ms")),
+                    "Previous Run": health.get("previous_run_id") or "-",
+                }
+            )
+        }
+  </article>
+  <article>
+    <h2>Signal Counts</h2>
+    {
+            _key_values(
+                {
+                    "Artifacts": signals["artifact_count"],
+                    "Action Retries": signals["action_retry_count"],
+                    "Test Retries": signals["test_retry_count"],
+                    "Healing Events": signals["healing_event_count"],
+                    "Healing Decisions": _inline_counts(signals["healing_decisions"]),
+                }
+            )
+        }
+  </article>
 </section>
 <section class="grid two">
   <article>
@@ -185,16 +224,17 @@ def _render_dashboard(
     {_test_list(speed["fastest"], details)}
   </article>
   <article>
-    <h2>Slowest Tests</h2>
+    <h2>Top Slow Tests</h2>
     {_test_list(speed["slowest"], details)}
   </article>
   <article>
-    <h2>Failure Summary</h2>
-    {_failure_summary_list(report)}
+    <h2>Failure Clusters</h2>
+    {_failure_cluster_list(report_data["failure_clusters"])}
   </article>
 </section>
 <section>
-  <h2>Flaky Signals</h2>
+  <h2>Flaky Breakdown</h2>
+  {_flaky_breakdown_view(report_data["flaky"]["breakdown"])}
   {_analysis_table(flaky)}
 </section>
 <section>
@@ -211,6 +251,7 @@ def _render_dashboard(
 def _render_test_page(report: RunReport, test: TestCaseReport, page_dir: Path, report_root: Path) -> str:
     action_retries = collect_action_retries(test)
     artifacts = collect_test_artifacts(test)
+    healing_events = _healing_events(test)
     timeline = [
         event
         for event in build_timeline_events(RunReport(run_id=report.run_id, tests=[test]))
@@ -232,11 +273,12 @@ def _render_test_page(report: RunReport, test: TestCaseReport, page_dir: Path, r
   {_metric("Duration", _format_duration(test.duration_ms))}
   {_metric("Retries", len(test.retries))}
   {_metric("Action Retries", len(action_retries))}
+  {_metric("Healing Events", len(healing_events))}
   {_metric("Artifacts", len(artifacts))}
 </section>
 <section class="grid two">
   <article>
-    <h2>Failure Reason</h2>
+    <h2>Smart Failure Summary</h2>
     {_failure_reason(test)}
   </article>
   <article>
@@ -247,12 +289,16 @@ def _render_test_page(report: RunReport, test: TestCaseReport, page_dir: Path, r
 <section class="grid two">
   <article>
     <h2>Capabilities</h2>
-    {_json_block(test.capabilities or {})}
+    {_data_block(test.capabilities or {})}
   </article>
   <article>
     <h2>Metadata</h2>
-    {_json_block(test.metadata or {})}
+    {_data_block(_display_metadata(test.metadata or {}))}
   </article>
+</section>
+<section>
+  <h2>Healing Events</h2>
+  {_healing_table(healing_events)}
 </section>
 <section>
   <h2>Steps</h2>
@@ -264,7 +310,7 @@ def _render_test_page(report: RunReport, test: TestCaseReport, page_dir: Path, r
     {_retry_table(test.retries)}
   </article>
   <article>
-    <h2>Action Retries</h2>
+    <h2>Action Retry Attempts</h2>
     {_retry_table(action_retries)}
   </article>
 </section>
@@ -302,8 +348,8 @@ def _render_flaky_page(report: RunReport) -> str:
     )
 
 
-def _render_matrix_page(report: RunReport) -> str:
-    summary = matrix_summary(report)
+def _render_matrix_page(report: RunReport, report_data: dict[str, Any]) -> str:
+    summary = report_data["matrix"]
     sections = "\n".join(
         f"<article><h2>{_e(dimension)}</h2>{_matrix_table(values)}</article>" for dimension, values in summary.items()
     )
@@ -317,7 +363,7 @@ def _render_matrix_page(report: RunReport) -> str:
     )
 
 
-def _render_history_page(report: RunReport, history_entries: list[dict[str, Any]]) -> str:
+def _render_history_page(report: RunReport, history_entries: list[dict[str, Any]], report_data: dict[str, Any]) -> str:
     rows = "\n".join(
         f"<tr><td>{_e(entry.get('latest_run', ''))}</td><td>{_e(entry.get('run_id', ''))}</td>"
         f"<td>{entry.get('pass_rate', 0)}%</td><td>{entry.get('flaky', 0)}</td>"
@@ -332,6 +378,10 @@ def _render_history_page(report: RunReport, history_entries: list[dict[str, Any]
 <section>
   <h2>Pass Rate Trend</h2>
   {_trend_bars(trend_points(history_entries))}
+</section>
+<section>
+  <h2>Recent Comparison</h2>
+  {_history_comparison_view(report_data["history"]["comparison"])}
 </section>
 <section>
   <h2>Runs</h2>
@@ -454,6 +504,17 @@ def _failure_summary_list(report: RunReport) -> str:
     return f"<ul>{items}</ul>"
 
 
+def _failure_cluster_list(clusters: list[dict[str, Any]]) -> str:
+    if not clusters:
+        return "<p>No failures.</p>"
+    items = "".join(
+        f"<li><strong>{_e(cluster['title'])}</strong>: {cluster['count']}"
+        f'<br><span class="muted">{_e(cluster["detail"])}</span></li>'
+        for cluster in clusters
+    )
+    return f"<ul>{items}</ul>"
+
+
 def _failure_reason(test: TestCaseReport) -> str:
     if test.status not in {"failed", "broken"} and not test.failure_message:
         return "<pre>No failure message.</pre>"
@@ -486,6 +547,16 @@ def _analysis_table(items: list[dict[str, Any]]) -> str:
     )
 
 
+def _flaky_breakdown_view(breakdown: dict[str, int]) -> str:
+    if not any(breakdown.values()):
+        return "<p>No flaky signals found.</p>"
+    return (
+        '<div class="metrics compact">'
+        + "".join(_metric(_humanize_label(category), count) for category, count in breakdown.items())
+        + "</div>"
+    )
+
+
 def _timeline_table(events: list[ReportingEvent]) -> str:
     rows = "\n".join(
         f"<tr><td>{_e(event.timestamp.isoformat())}</td><td>{_e(event.event_type)}</td><td>{_e(event.test_name or '')}</td>"
@@ -499,16 +570,16 @@ def _timeline_table(events: list[ReportingEvent]) -> str:
     )
 
 
-def _matrix_table(values: dict[str, dict[str, int]]) -> str:
+def _matrix_table(values: dict[str, dict[str, Any]]) -> str:
     rows = "\n".join(
         f"<tr><td>{_e(name)}</td><td>{counts['total']}</td><td>{counts['passed']}</td>"
-        f"<td>{counts['failed'] + counts['broken']}</td><td>{counts['skipped']}</td></tr>"
+        f"<td>{counts['failed'] + counts['broken']}</td><td>{counts['skipped']}</td>"
+        f"<td>{counts.get('pass_rate', 0)}%</td><td>{_e(_inline_counts(counts.get('failure_categories', {})))}</td></tr>"
         for name, counts in values.items()
     )
     return (
-        "<table><thead><tr><th>Name</th><th>Total</th><th>Passed</th><th>Failed</th><th>Skipped</th></tr></thead><tbody>"
-        + rows
-        + "</tbody></table>"
+        "<table><thead><tr><th>Name</th><th>Total</th><th>Passed</th><th>Failed</th><th>Skipped</th>"
+        "<th>Pass Rate</th><th>Failure Categories</th></tr></thead><tbody>" + rows + "</tbody></table>"
     )
 
 
@@ -537,6 +608,48 @@ def _retry_table(retries: list[Any]) -> str:
         "<table><thead><tr><th>Attempt</th><th>Type</th><th>Action</th><th>Status</th><th>Duration</th><th>Reason</th></tr></thead>"
         f"<tbody>{rows or empty_row}</tbody></table>"
     )
+
+
+def _healing_table(events: list[dict[str, Any]]) -> str:
+    if not events:
+        return "<p>No healing events captured.</p>"
+    rows = "\n".join(
+        f"<tr><td>{_e(event.get('mode', ''))}</td><td>{_e(event.get('decision', ''))}</td>"
+        f"<td>{_e(event.get('action', ''))}</td><td>{_e(_healing_selected_value(event))}</td>"
+        f"<td>{_e(_healing_selected_score(event))}</td><td>{_e(event.get('reason', ''))}</td></tr>"
+        for event in events
+    )
+    return (
+        "<table><thead><tr><th>Mode</th><th>Decision</th><th>Action</th><th>Selected</th>"
+        "<th>Score</th><th>Reason</th></tr></thead><tbody>" + rows + "</tbody></table>"
+    )
+
+
+def _healing_events(test: TestCaseReport) -> list[dict[str, Any]]:
+    events = test.metadata.get("healing_events", [])
+    if not isinstance(events, list):
+        return []
+    return [event for event in events if isinstance(event, dict)]
+
+
+def _healing_selected_value(event: dict[str, Any]) -> str:
+    selected = event.get("selected")
+    if not isinstance(selected, dict):
+        return "-"
+    candidate = selected.get("candidate")
+    if not isinstance(candidate, dict):
+        return "-"
+    return str(candidate.get("value") or "-")
+
+
+def _healing_selected_score(event: dict[str, Any]) -> str:
+    selected = event.get("selected")
+    if not isinstance(selected, dict):
+        return "-"
+    score = selected.get("score")
+    if score is None:
+        return "-"
+    return str(score)
 
 
 def _artifacts_view(artifacts: list[Artifact], page_dir: Path, report_root: Path) -> str:
@@ -624,9 +737,45 @@ def _trend_bars(points: list[dict[str, Any]]) -> str:
     )
 
 
+def _history_comparison_view(comparison: dict[str, Any]) -> str:
+    if not comparison:
+        return "<p>No previous run available.</p>"
+    return _key_values(
+        {
+            "Current Run": comparison.get("current_run_id", "-"),
+            "Previous Run": comparison.get("previous_run_id", "-"),
+            "Current Pass Rate": f"{comparison.get('current_pass_rate', 0)}%",
+            "Previous Pass Rate": f"{comparison.get('previous_pass_rate', 0)}%",
+            "Pass Rate Change": _format_delta(comparison.get("pass_rate_delta"), suffix="%"),
+            "Failed Change": _format_delta(comparison.get("failed_delta")),
+            "Flaky Change": _format_delta(comparison.get("flaky_delta")),
+            "Duration Change": _format_duration_delta(comparison.get("duration_delta_ms")),
+        }
+    )
+
+
 def _key_values(values: dict[str, Any]) -> str:
     rows = "".join(f"<tr><th>{_e(key)}</th><td>{_e(value)}</td></tr>" for key, value in values.items())
     return f"<table>{rows}</table>"
+
+
+def _data_block(value: dict[str, Any]) -> str:
+    if not value:
+        return "<p>No data captured.</p>"
+    visible = {key: _compact_value(item) for key, item in value.items()}
+    return _key_values(visible) + "<details><summary>Raw JSON</summary>" + _json_block(value) + "</details>"
+
+
+def _display_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in metadata.items() if key != "healing_events"}
+
+
+def _compact_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return f"{len(value)} keys"
+    if isinstance(value, list):
+        return f"{len(value)} items"
+    return value
 
 
 def _test_context_values(test: TestCaseReport) -> dict[str, Any]:
@@ -646,6 +795,22 @@ def _json_block(value: Any) -> str:
     return f"<pre>{_e(json.dumps(to_jsonable(value), indent=2, default=str))}</pre>"
 
 
+def _format_delta(value: Any, *, suffix: str = "") -> str:
+    if value is None:
+        return "-"
+    numeric = float(value)
+    prefix = "+" if numeric > 0 else ""
+    return f"{prefix}{numeric:g}{suffix}"
+
+
+def _format_duration_delta(value: Any) -> str:
+    if value is None:
+        return "-"
+    numeric = float(value)
+    prefix = "+" if numeric > 0 else "-" if numeric < 0 else ""
+    return f"{prefix}{_format_duration(abs(numeric))}" if numeric else "0s"
+
+
 def _format_duration(duration_ms: float | int) -> str:
     seconds = round(float(duration_ms) / 1000, 2)
     if seconds < 60:
@@ -661,3 +826,13 @@ def _slug(value: str) -> str:
 
 def _e(value: Any) -> str:
     return html.escape(str(value), quote=True)
+
+
+def _inline_counts(counts: dict[str, Any]) -> str:
+    if not counts:
+        return "-"
+    return ", ".join(f"{key}: {value}" for key, value in sorted(counts.items()))
+
+
+def _humanize_label(value: str) -> str:
+    return " ".join(part.capitalize() for part in value.replace("-", "_").split("_") if part)

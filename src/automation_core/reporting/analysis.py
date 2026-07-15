@@ -197,10 +197,10 @@ def has_action_flaky(test: TestCaseReport) -> bool:
     return any(status in FAILED_STATUSES for status in statuses) and statuses[-1] == PASSED_STATUS
 
 
-def matrix_summary(report: RunReport) -> dict[str, dict[str, dict[str, int]]]:
-    summary: dict[str, dict[str, dict[str, int]]] = {}
+def matrix_summary(report: RunReport) -> dict[str, dict[str, dict[str, Any]]]:
+    summary: dict[str, dict[str, dict[str, Any]]] = {}
     for dimension in report.matrix_dimensions:
-        values: dict[str, dict[str, int]] = {}
+        values: dict[str, dict[str, Any]] = {}
         for test in report.tests:
             for value in _dimension_values(test, dimension):
                 bucket = values.setdefault(
@@ -209,6 +209,12 @@ def matrix_summary(report: RunReport) -> dict[str, dict[str, dict[str, int]]]:
                 )
                 bucket["total"] += 1
                 bucket[test.status if test.status in MATRIX_STATUSES else "unknown"] += 1
+                if test.status in FAILED_STATUSES:
+                    categories = bucket.setdefault("failure_categories", {})
+                    category = classify_failure(test)
+                    categories[category] = categories.get(category, 0) + 1
+        for bucket in values.values():
+            bucket["pass_rate"] = round((bucket["passed"] / bucket["total"]) * 100, 2) if bucket["total"] else 0
         if values:
             summary[dimension] = values
     return summary

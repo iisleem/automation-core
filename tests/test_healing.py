@@ -144,4 +144,5 @@ def test_healing_reporting_metadata_appears_in_timeline_and_product_report(tmp_p
     timeline = (tmp_path / "report" / "timeline.html").read_text(encoding="utf-8")
     detail = next((tmp_path / "report" / "tests").glob("*.html")).read_text(encoding="utf-8")
     assert "Healing applied" in timeline
-    assert "healing_events" in detail
+    assert "Healing Events" in detail
+    assert "#sign-in" in detail
