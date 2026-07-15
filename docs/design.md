@@ -123,13 +123,14 @@ report = RunReport(
 `generate_reporting_product(report, output_dir)` يكتب:
 
 - `index.html`: dashboard رئيسي.
+- `quality.html`: quality gates, new/known/resolved failures, and run comparison.
 - `explore.html`: searchable Tests Explore page with filters, sorting, and filtered charts.
 - `tests/*.html`: test details.
 - `timeline.html`: chronological events.
 - `flaky.html`: flaky/slow/failing analysis.
 - `matrix.html`: profile/browser/device/environment comparison.
 - `history.html`: history/trend من `reports/history`.
-- `report-data.json`: JSON-safe sidecar للـ dashboard insights, test index, chart aggregates, clusters, matrix/history, timeline counts, sharing metadata, and artifact index.
+- `report-data.json`: JSON-safe sidecar للـ dashboard insights, test index, chart aggregates, clusters, quality gates, failure transitions, run comparison, matrix/history, timeline counts, sharing metadata, and artifact index.
 - `data/run-report.json`: neutral JSON للـ run الحالي.
 
 Local artifacts are bundled by default under `artifacts/` inside the generated report:
@@ -325,14 +326,42 @@ It includes:
 - matrix summary with pass rate and failure category counts
 - timeline event counts and event details
 - history trend points and recent comparison
+- quality gate evaluation
+- new, known, and resolved failure transitions from the latest previous history run
+- run comparison deltas for totals, pass/fail/skip/flaky, duration, retries, healing events, and artifacts
 - risk signals and environment/execution coverage dimensions when metadata is available
 - artifact index with bundled hrefs after local artifact copying
 - sharing/export metadata with safe-share redaction status and export paths
 
+### Quality gates and run comparison
+
+Quality gates are opt-in and domain-neutral. They do not fail report generation unless the caller evaluates the
+returned data and chooses to enforce it in a framework or CI workflow:
+
+```python
+from automation_core.reporting import QualityGateConfig, generate_reporting_product
+
+generate_reporting_product(
+    report,
+    "reports/automation-report",
+    history_dir="reports/history",
+    quality_gates=QualityGateConfig(
+        min_pass_rate=95,
+        max_failed_broken=0,
+        max_flaky=2,
+        max_failures_by_category={"api_contract_mismatch": 0},
+    ),
+)
+```
+
+When history is available, core compares the current run with the latest previous run using stable identifiers in
+priority order: test id, full name, then name. Failed or broken tests are classified as new or known, and previous
+failures that now pass or are absent are listed as resolved.
+
 ### Enterprise static report experience
 
 The product report remains a portable static artifact: `index.html` works from local files or CI artifacts without a
-server or external CDN. The shared shell links Dashboard, Executive, Tests, Timeline, Flaky, Matrix, History, and Share consistently.
+server or external CDN. The shared shell links Dashboard, Executive, Quality, Tests, Timeline, Flaky, Matrix, History, and Share consistently.
 Pages include self-contained CSS/JavaScript for search, filtering, sorting, charts, and matrix view toggles.
 
 The Dashboard includes status distribution, duration distribution, slowest tests, failure category, retry signal,

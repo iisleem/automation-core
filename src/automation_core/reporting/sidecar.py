@@ -13,6 +13,7 @@ from automation_core.reporting.analysis import (
 from automation_core.reporting.events import ReportingEvent, build_timeline_events
 from automation_core.reporting.history import trend_points
 from automation_core.reporting.models import Artifact, RunReport, TestCaseReport, to_jsonable
+from automation_core.reporting.quality import QualityGate, QualityGateConfig, evaluate_quality_gates
 from automation_core.reporting.redaction import redact_payload, redact_report, redaction_manifest
 from automation_core.reporting.traversal import collect_action_retries, collect_test_artifacts, iter_steps
 
@@ -25,6 +26,10 @@ def build_report_data(
     history_entries: list[dict[str, Any]] | None = None,
     timeline_events: list[ReportingEvent] | None = None,
     details: dict[str, str] | None = None,
+    quality_gates: QualityGateConfig
+    | list[QualityGate | dict[str, Any]]
+    | tuple[QualityGate | dict[str, Any], ...]
+    | None = None,
     safe_share: bool = True,
     redaction: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -41,6 +46,8 @@ def build_report_data(
     speed = fastest_slowest_tests(report, limit=10)
     test_index = _test_index(report, details or {})
     aggregates = _aggregates(report, test_index)
+    signals = _signal_counts(report)
+    run_comparison = _run_comparison(summary, history, signals)
 
     payload = {
         "run": {
@@ -56,6 +63,7 @@ def build_report_data(
             "retry_signals": aggregates["retry_signals"],
             "artifact_types": aggregates["artifact_types"],
             "coverage": aggregates["coverage"],
+            "run_comparison": _run_comparison_chart(run_comparison),
         },
         "top_slow_tests": _test_refs(speed["slowest"]),
         "failure_clusters": _failure_clusters(report),
@@ -63,8 +71,11 @@ def build_report_data(
             "items": flaky_analysis(report),
             "breakdown": _flaky_breakdown(report),
         },
-        "signals": _signal_counts(report),
+        "signals": signals,
         "risk_signals": _risk_signals(report, test_index),
+        "quality": evaluate_quality_gates(report, quality_gates).to_dict(),
+        "failure_transitions": _failure_transitions(test_index, history, summary),
+        "run_comparison": run_comparison,
         "matrix": matrix_summary(report),
         "timeline": {
             "event_counts": dict(sorted(Counter(event.event_type for event in timeline).items())),
@@ -274,6 +285,167 @@ def _history_comparison(summary: dict[str, Any], history_entries: list[dict[str,
         "flaky_delta": _numeric_delta(summary.get("flaky", 0), previous.get("flaky", 0)),
         "duration_delta_ms": _numeric_delta(summary.get("duration_ms", 0), previous.get("duration_ms", 0)),
     }
+
+
+def _failure_transitions(
+    test_index: list[dict[str, Any]],
+    history_entries: list[dict[str, Any]],
+    summary: dict[str, Any],
+) -> dict[str, Any]:
+    previous = _previous_history_entry(summary, history_entries)
+    empty = {
+        "previous_run_id": "",
+        "new_failures": [],
+        "known_failures": [],
+        "resolved_failures": [],
+        "counts": {"new": 0, "known": 0, "resolved": 0},
+    }
+    if not previous:
+        return empty
+
+    current_by_identity = {
+        _test_identity_from_index(item): item for item in test_index if _test_identity_from_index(item)
+    }
+    current_failed = {
+        identity: item
+        for identity, item in current_by_identity.items()
+        if str(item.get("status", "")) in FAILED_STATUSES
+    }
+    previous_failed = {
+        _test_identity_from_history(item): item
+        for item in previous.get("failed_tests", [])
+        if isinstance(item, dict) and _test_identity_from_history(item)
+    }
+
+    new_failures = [
+        _failure_transition_current_ref(identity, item)
+        for identity, item in current_failed.items()
+        if identity not in previous_failed
+    ]
+    known_failures = [
+        _failure_transition_current_ref(identity, item)
+        for identity, item in current_failed.items()
+        if identity in previous_failed
+    ]
+    resolved_failures: list[dict[str, Any]] = []
+    for identity, previous_item in previous_failed.items():
+        if identity in current_failed:
+            continue
+        current_item = current_by_identity.get(identity)
+        if current_item is None or current_item.get("status") == "passed":
+            resolved_failures.append(_resolved_failure_ref(identity, previous_item, current_item))
+
+    return {
+        "previous_run_id": previous.get("run_id", ""),
+        "new_failures": new_failures,
+        "known_failures": known_failures,
+        "resolved_failures": resolved_failures,
+        "counts": {
+            "new": len(new_failures),
+            "known": len(known_failures),
+            "resolved": len(resolved_failures),
+        },
+    }
+
+
+def _run_comparison(
+    summary: dict[str, Any],
+    history_entries: list[dict[str, Any]],
+    signals: dict[str, Any],
+) -> dict[str, Any]:
+    previous = _previous_history_entry(summary, history_entries)
+    if not previous:
+        return {}
+
+    metrics = {
+        "total": (summary.get("total", 0), previous.get("total", 0)),
+        "passed": (summary.get("passed", 0), previous.get("passed", 0)),
+        "failed_broken": (
+            summary.get("failed", 0) + summary.get("broken", 0),
+            previous.get("failed", 0) + previous.get("broken", 0),
+        ),
+        "skipped": (summary.get("skipped", 0), previous.get("skipped", 0)),
+        "flaky": (summary.get("flaky", 0), previous.get("flaky", 0)),
+        "duration_ms": (summary.get("duration_ms", 0), previous.get("duration_ms", 0)),
+        "test_retry_count": (signals.get("test_retry_count", 0), _previous_signal(previous, "test_retry_count")),
+        "action_retry_count": (
+            signals.get("action_retry_count", 0),
+            _previous_signal(previous, "action_retry_count"),
+        ),
+        "healing_event_count": (
+            signals.get("healing_event_count", 0),
+            _previous_signal(previous, "healing_event_count"),
+        ),
+        "artifact_count": (signals.get("artifact_count", 0), _previous_signal(previous, "artifact_count")),
+    }
+    values = {
+        metric: {
+            "current": current,
+            "previous": previous_value,
+            "delta": _numeric_delta(current, previous_value),
+        }
+        for metric, (current, previous_value) in metrics.items()
+    }
+    return {
+        "current_run_id": summary.get("run_id", ""),
+        "previous_run_id": previous.get("run_id", ""),
+        "values": values,
+        "deltas": {metric: item["delta"] for metric, item in values.items()},
+    }
+
+
+def _run_comparison_chart(comparison: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {"metric": metric, **values}
+        for metric, values in comparison.get("values", {}).items()
+        if metric in {"total", "passed", "failed_broken", "skipped", "flaky", "test_retry_count", "action_retry_count"}
+    ]
+
+
+def _test_identity_from_index(item: dict[str, Any]) -> str:
+    return str(item.get("test_id") or item.get("full_name") or item.get("name") or "")
+
+
+def _test_identity_from_history(item: dict[str, Any]) -> str:
+    return str(item.get("identity") or item.get("test_id") or item.get("full_name") or item.get("name") or "")
+
+
+def _failure_transition_current_ref(identity: str, item: dict[str, Any]) -> dict[str, Any]:
+    failure = item.get("failure", {})
+    return {
+        "identity": identity,
+        "test_id": item.get("test_id", ""),
+        "name": item.get("name", ""),
+        "full_name": item.get("full_name", ""),
+        "status": item.get("status", ""),
+        "detail_href": item.get("detail_href", ""),
+        "failure_category": failure.get("category", ""),
+        "failure_title": failure.get("title", ""),
+    }
+
+
+def _resolved_failure_ref(
+    identity: str,
+    previous_item: dict[str, Any],
+    current_item: dict[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "identity": identity,
+        "test_id": (current_item or previous_item).get("test_id", ""),
+        "name": (current_item or previous_item).get("name", ""),
+        "full_name": (current_item or previous_item).get("full_name", ""),
+        "previous_status": previous_item.get("status", ""),
+        "current_status": current_item.get("status", "absent") if current_item else "absent",
+        "detail_href": current_item.get("detail_href", "") if current_item else "",
+        "failure_category": previous_item.get("failure_category", ""),
+    }
+
+
+def _previous_signal(previous: dict[str, Any], key: str) -> Any:
+    signals = previous.get("signals", {})
+    if isinstance(signals, dict):
+        return signals.get(key, 0)
+    return 0
 
 
 def _previous_history_entry(summary: dict[str, Any], history_entries: list[dict[str, Any]]) -> dict[str, Any] | None:

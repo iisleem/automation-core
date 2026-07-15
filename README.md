@@ -17,7 +17,7 @@ See [Template Repository Strategy](docs/template_strategy.md) for the product-fa
 From GitHub after the repository is published:
 
 ```bash
-pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.6.0"
+pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.7.0"
 ```
 
 For local development:
@@ -31,13 +31,15 @@ pytest
 
 - Config loading for YAML/JSON, environment interpolation, environment selection, and `deep_get`.
 - Logging setup with optional file logging.
-- Shared reporting product with neutral models/events/artifacts, visual dashboard charts, executive summary, share/export center, searchable Tests Explore, test details, timeline, flaky analysis, matrix heatmaps, artifacts viewer, history, machine-readable sidecar data, plus Allure result parsing and fallback HTML summaries.
+- Shared reporting product with neutral models/events/artifacts, visual dashboard charts, executive summary, quality gates, run comparison, share/export center, searchable Tests Explore, test details, timeline, flaky analysis, matrix heatmaps, artifacts viewer, history, machine-readable sidecar data, plus Allure result parsing and fallback HTML summaries.
 - Runtime auto-healing foundation with neutral locator/candidate models, scoring, safety gates, JSONL audit events, and report metadata helpers.
 - Optional Allure debug attachments with graceful no-op behavior when Allure is unavailable.
 - Wait, polling, and retry helpers.
 - Data, file, structured file, text, URL, date/time, secrets, cleanup, soft assertion, security, and response timing helpers.
 
 ## Version Notes
+
+`0.7.0` adds neutral report quality gates, new/known/resolved failure comparison against history, run-to-run comparison sidecar data, and a dedicated Quality page in the static reporting product.
 
 `0.6.0` adds the first enterprise sharing slice for the static reporting product: Executive Summary, Share And Export center, printable summary, CSV/JSON export artifacts, share manifest, stakeholder views, and safe-sharing redaction for generated report outputs by default.
 
@@ -152,6 +154,12 @@ test index records with detail links, chart-ready aggregates, failure clusters, 
 timeline counts/events, history comparison points, risk signals, coverage metadata, and an artifact index with
 bundled hrefs. Framework validation can read this file instead of scraping HTML.
 
+Quality gates are opt-in and domain-neutral. Callers can pass `quality_gates=QualityGateConfig(...)` to
+`generate_reporting_product(...)` or `build_report_data(...)` to evaluate thresholds such as minimum pass rate,
+maximum failed/broken tests, skipped tests, flaky tests, retries, duration, and failure categories. When history is
+available, the sidecar and `quality.html` classify current failures as new or known and list resolved failures from
+the previous run.
+
 Generated reports are safe-sharing enabled by default. Values under sensitive keys or names such as `token`,
 `secret`, `password`, `authorization`, `cookie`, `api_key`, `bearer`, and `session` are replaced with `[redacted]`
 in public-facing HTML, `report-data.json`, `data/run-report.json`, CSV exports, and JSON export bundles. Normal
@@ -161,6 +169,7 @@ metadata values are preserved. Call `generate_reporting_product(..., safe_share=
 The report also writes:
 
 - `executive.html`: management-ready readiness, blockers, trend, quality, retry, and coverage summary.
+- `quality.html`: quality gate status, new/known/resolved failures, and run comparison.
 - `share.html`: export center with stakeholder views and links to the generated artifacts.
 - `print-summary.html`: printable HTML summary suitable for browser PDF printing.
 - `exports/test-index.csv`: flat test index for spreadsheet workflows.

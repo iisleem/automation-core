@@ -5,8 +5,15 @@ import re
 from pathlib import Path
 from typing import Any
 
-from automation_core.reporting.analysis import failure_categories, fastest_slowest_tests, flaky_analysis, summarize_run
-from automation_core.reporting.models import RunReport, to_jsonable
+from automation_core.reporting.analysis import (
+    classify_failure,
+    failure_categories,
+    fastest_slowest_tests,
+    flaky_analysis,
+    summarize_run,
+)
+from automation_core.reporting.models import RunReport, TestCaseReport, to_jsonable
+from automation_core.reporting.traversal import collect_action_retries, collect_test_artifacts
 
 INDEX_FILE = "index.json"
 
@@ -17,6 +24,7 @@ def history_entry_from_report(report: RunReport) -> dict[str, Any]:
     return {
         **summary,
         "failure_categories": failure_categories(report),
+        "failed_tests": [_failed_test_entry(test) for test in report.tests if test.status in {"failed", "broken"}],
         "flaky_tests": flaky_analysis(report),
         "slow_tests": [
             {
@@ -27,6 +35,12 @@ def history_entry_from_report(report: RunReport) -> dict[str, Any]:
             }
             for test in speed["slowest"]
         ],
+        "signals": {
+            "artifact_count": sum(len(collect_test_artifacts(test)) for test in report.tests),
+            "action_retry_count": sum(len(collect_action_retries(test)) for test in report.tests),
+            "test_retry_count": sum(len(test.retries) for test in report.tests),
+            "healing_event_count": sum(_healing_event_count(test) for test in report.tests),
+        },
     }
 
 
@@ -79,6 +93,27 @@ def trend_points(history_entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         }
         for entry in history_entries
     ]
+
+
+def _failed_test_entry(test: TestCaseReport) -> dict[str, Any]:
+    return {
+        "identity": _test_identity(test),
+        "test_id": test.id,
+        "name": test.name,
+        "full_name": test.full_name,
+        "status": test.status,
+        "failure_category": classify_failure(test),
+        "failure_message": test.failure_message[:300],
+    }
+
+
+def _test_identity(test: TestCaseReport) -> str:
+    return test.id or test.full_name or test.name
+
+
+def _healing_event_count(test: TestCaseReport) -> int:
+    events = test.metadata.get("healing_events", [])
+    return len(events) if isinstance(events, list) else 0
 
 
 def _safe_filename(value: str) -> str:
