@@ -133,6 +133,28 @@ report = RunReport(
 - `report-data.json`: JSON-safe sidecar للـ dashboard insights, test index, chart aggregates, clusters, quality gates, failure transitions, run comparison, matrix/history, timeline counts, sharing metadata, and artifact index.
 - `data/run-report.json`: neutral JSON للـ run الحالي.
 
+`finalize_allure_reporting(...)` يستخدم `generate_reporting_product(...)` داخل retained portfolio root. بدلاً من
+الكتابة فوق `reports/automation-report`, كل run جديد يذهب إلى:
+
+```text
+reports/automation-report/
+  index.html
+  reports.html
+  portfolio-data.json
+  runs/
+    20260716-182455-local-run/
+      index.html
+      executive.html
+      report-data.json
+      data/run-report.json
+      tests/
+      exports/
+```
+
+Root `index.html` هو cross-run dashboard لكل التقارير المحفوظة. Root `reports.html` هو gallery لاختيار run محدد.
+إذا وجد finalizer تقريراً قديماً مباشرة تحت root، ينقله إلى `runs/<timestamp>-<run-id>/` قبل كتابة صفحات
+portfolio الجديدة حتى لا يضيع آخر تقرير موجود.
+
 Local artifacts are bundled by default under `artifacts/` inside the generated report:
 
 ```python
@@ -166,7 +188,8 @@ The finalizer returns structured status data:
 
 ```python
 assert result.core.generated
-print(result.core.path)
+print(result.core.path)      # reports/automation-report/index.html, portfolio dashboard
+print(result.core.run_path)  # reports/automation-report/runs/<timestamp>-<run-id>/index.html
 print(result.warnings)
 ```
 
@@ -180,7 +203,8 @@ For richer domain metadata, frameworks can still build/enrich the neutral `RunRe
 `finalize_allure_reporting(...)` is the shared end-of-run orchestration API. It is domain-neutral and coordinates:
 
 - reading Allure result JSON into neutral `RunReport` data
-- generating the core product report by default
+- generating the core product report by default under a timestamped retained run folder
+- generating root portfolio pages across all retained runs
 - optionally generating the legacy summary report
 - optionally generating the official Allure HTML report
 - optionally opening the selected generated report
@@ -363,6 +387,11 @@ failures that now pass or are absent are listed as resolved.
 The product report remains a portable static artifact: `index.html` works from local files or CI artifacts without a
 server or external CDN. The shared shell links Dashboard, Executive, Quality, Tests, Timeline, Flaky, Matrix, History, and Share consistently.
 Pages include self-contained CSS/JavaScript for search, filtering, sorting, charts, and matrix view toggles.
+
+At the finalizer level, the report root is also a portable portfolio artifact. The root Dashboard summarizes every
+retained report with search/filter controls, pass-rate trend, run outcome chart, failure category chart, framework
+health, attention list, and metadata coverage. The Reports page renders every retained run as selectable cards or a
+table with direct links to that run's dashboard, executive page, tests page, and share page.
 
 The Dashboard includes status distribution, duration distribution, slowest tests, failure category, retry signal,
 artifact type, and history trend charts. The Tests Explore page uses the sidecar test index for global search,

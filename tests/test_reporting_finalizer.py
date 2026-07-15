@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import stat
+from pathlib import Path
 
 from automation_core.reporting import finalize_allure_reporting
 
@@ -24,7 +25,12 @@ def test_finalize_allure_reporting_generates_core_report_by_default(tmp_path):
     assert result.summary.requested is False
     assert result.allure.requested is False
     assert result.core.path == str(tmp_path / "product" / "index.html")
-    assert (tmp_path / "product" / "data" / "run-report.json").exists()
+    assert result.core.run_path is not None
+    assert result.core.run_path.startswith(str(tmp_path / "product" / "runs"))
+    assert (tmp_path / "product" / "reports.html").exists()
+    assert (tmp_path / "product" / "portfolio-data.json").exists()
+    assert (tmp_path / "product" / "runs").exists()
+    assert (Path(result.core.run_path).parent / "data" / "run-report.json").exists()
     assert list((tmp_path / "history").glob("*.json"))
 
 
@@ -107,7 +113,8 @@ def test_finalize_missing_results_can_generate_empty_core_report(tmp_path):
 
     assert result.ok is True
     assert result.core.generated is True
-    assert "No tests found" in (tmp_path / "product" / "index.html").read_text(encoding="utf-8")
+    assert result.core.run_path is not None
+    assert "No tests found" in Path(result.core.run_path).read_text(encoding="utf-8")
     assert any("generating an empty report" in warning for warning in result.warnings)
     assert list((tmp_path / "history").glob("*.json"))
 
@@ -182,7 +189,10 @@ def test_finalize_core_accepts_neutral_metadata_hooks(tmp_path):
         matrix_dimensions=["domain", "profile", "platform_version", "context"],
     )
 
-    run_report = json.loads((tmp_path / "product" / "data" / "run-report.json").read_text(encoding="utf-8"))
+    assert result.core.run_path is not None
+    run_report = json.loads(
+        (Path(result.core.run_path).parent / "data" / "run-report.json").read_text(encoding="utf-8")
+    )
 
     assert result.ok is True
     assert run_report["matrix_dimensions"] == ["domain", "profile", "platform_version", "context"]
@@ -190,13 +200,92 @@ def test_finalize_core_accepts_neutral_metadata_hooks(tmp_path):
     assert run_report["tests"][0]["metadata"]["platform_version"] == "17.5"
 
 
-def _write_allure_result(tmp_path):
-    results_dir = tmp_path / "allure-results"
-    results_dir.mkdir()
-    (results_dir / "one-result.json").write_text(
+def test_finalize_core_retains_multiple_timestamped_reports_and_portfolio_pages(tmp_path):
+    first_results = _write_allure_result(tmp_path, name="first-result.json", history_id="case-one")
+    second_results = _write_allure_result(tmp_path, name="second-result.json", history_id="case-two")
+    output_dir = tmp_path / "product"
+
+    first = finalize_allure_reporting(
+        first_results,
+        output_dir,
+        project_name="automation-core",
+        framework="pytest",
+        run_id="run-one",
+        history_dir=tmp_path / "history",
+    )
+    second = finalize_allure_reporting(
+        second_results,
+        output_dir,
+        project_name="automation-core",
+        framework="pytest",
+        run_id="run-two",
+        history_dir=tmp_path / "history",
+    )
+
+    assert first.core.run_path != second.core.run_path
+    run_dirs = sorted((output_dir / "runs").iterdir())
+    assert len(run_dirs) == 2
+    assert all(path.name[:8].isdigit() and path.name[8] == "-" for path in run_dirs)
+    portfolio = json.loads((output_dir / "portfolio-data.json").read_text(encoding="utf-8"))
+    assert [item["run_id"] for item in portfolio["reports"]] == ["run-two", "run-one"]
+    assert "Automation Reports Dashboard" in (output_dir / "index.html").read_text(encoding="utf-8")
+    assert "Reports" in (output_dir / "reports.html").read_text(encoding="utf-8")
+
+
+def test_finalize_core_archives_legacy_root_report_before_writing_portfolio(tmp_path):
+    output_dir = tmp_path / "product"
+    (output_dir / "data").mkdir(parents=True)
+    (output_dir / "tests").mkdir()
+    (output_dir / "index.html").write_text("<html>legacy</html>", encoding="utf-8")
+    (output_dir / "data" / "run-report.json").write_text("{}", encoding="utf-8")
+    (output_dir / "report-data.json").write_text(
         json.dumps(
             {
-                "historyId": "case-finalizer",
+                "run": {
+                    "summary": {
+                        "run_id": "legacy-run",
+                        "latest_run": "2026-07-16T10:00:00+00:00",
+                        "status": "passed",
+                        "total": 1,
+                        "passed": 1,
+                        "failed": 0,
+                        "broken": 0,
+                        "skipped": 0,
+                        "flaky": 0,
+                        "pass_rate": 100,
+                        "duration_ms": 100,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    results_dir = _write_allure_result(tmp_path)
+
+    result = finalize_allure_reporting(
+        results_dir,
+        output_dir,
+        project_name="automation-core",
+        framework="pytest",
+        run_id="new-run",
+        history_dir=None,
+    )
+
+    assert result.ok is True
+    portfolio = json.loads((output_dir / "portfolio-data.json").read_text(encoding="utf-8"))
+    assert {item["run_id"] for item in portfolio["reports"]} == {"legacy-run", "new-run"}
+    legacy_dir = next(path for path in (output_dir / "runs").iterdir() if "legacy-run" in path.name)
+    assert (legacy_dir / "index.html").read_text(encoding="utf-8") == "<html>legacy</html>"
+    assert not (output_dir / "report-data.json").exists()
+
+
+def _write_allure_result(tmp_path, *, name="one-result.json", history_id="case-finalizer"):
+    results_dir = tmp_path / f"allure-results-{history_id}"
+    results_dir.mkdir()
+    (results_dir / name).write_text(
+        json.dumps(
+            {
+                "historyId": history_id,
                 "name": "test_finalizer",
                 "fullName": "tests.test_finalizer",
                 "status": "passed",

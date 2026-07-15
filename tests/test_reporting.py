@@ -196,8 +196,11 @@ def test_cli_generates_product_report_by_default_and_summary_when_requested(tmp_
         == 0
     )
     assert (product_output / "index.html").exists()
-    assert (product_output / "timeline.html").exists()
-    assert (product_output / "data" / "run-report.json").exists()
+    assert (product_output / "reports.html").exists()
+    run_dirs = list((product_output / "runs").iterdir())
+    assert len(run_dirs) == 1
+    assert (run_dirs[0] / "timeline.html").exists()
+    assert (run_dirs[0] / "data" / "run-report.json").exists()
 
     assert (
         cli_main(
@@ -233,4 +236,5 @@ def test_cli_generates_product_report_by_default_and_summary_when_requested(tmp_
         == 0
     )
     assert (both_output / "index.html").exists()
+    assert (both_output / "reports.html").exists()
     assert not (both_output / "allure" / "index.html").exists()

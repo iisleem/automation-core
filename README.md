@@ -39,6 +39,11 @@ pytest
 
 ## Version Notes
 
+`0.9.0` adds retained timestamped report runs and a portfolio dashboard. The shared finalizer now stores each core
+report under `reports/automation-report/runs/<timestamp>-<run-id>/`, keeps older run folders, archives a pre-existing
+root report instead of overwriting it, and writes cross-run `index.html`, `reports.html`, and `portfolio-data.json`
+pages at the report root.
+
 `0.8.0` adds an enterprise export pack for the static reporting product: Word executive summary, Excel test index workbook, and an SVG share card generated without extra runtime dependencies.
 
 `0.7.0` adds neutral report quality gates, new/known/resolved failure comparison against history, run-to-run comparison sidecar data, and a dedicated Quality page in the static reporting product.
@@ -149,12 +154,22 @@ if not result.ok:
 The returned object includes per-report statuses, generated paths, warnings, errors, and open status so framework
 wrappers can make clear decisions without parsing console output.
 
+When frameworks use `finalize_allure_reporting(...)`, the report root becomes a retained report portfolio:
+
+- `reports/automation-report/index.html`: cross-run dashboard with search, filters, charts, health signals, and coverage.
+- `reports/automation-report/reports.html`: report gallery with cards/table view and links into each saved run.
+- `reports/automation-report/runs/<timestamp>-<run-id>/index.html`: exact dashboard for one execution.
+- `reports/automation-report/portfolio-data.json`: machine-readable index of all saved report runs.
+
+`result.core.path` points to the portfolio dashboard. `result.core.run_path` points to the current timestamped run's
+`index.html`.
+
 By default, local artifact files are bundled under the generated report's `artifacts/` directory when possible. External URLs are preserved.
 
-The product report also writes `report-data.json` next to `index.html`. It contains JSON-safe run summary data,
-test index records with detail links, chart-ready aggregates, failure clusters, flaky breakdown, matrix rows,
-timeline counts/events, history comparison points, risk signals, coverage metadata, and an artifact index with
-bundled hrefs. Framework validation can read this file instead of scraping HTML.
+Each timestamped run report writes `report-data.json` next to that run's `index.html`. It contains JSON-safe run
+summary data, test index records with detail links, chart-ready aggregates, failure clusters, flaky breakdown,
+matrix rows, timeline counts/events, history comparison points, risk signals, coverage metadata, and an artifact
+index with bundled hrefs. Framework validation can read this file instead of scraping HTML.
 
 Quality gates are opt-in and domain-neutral. Callers can pass `quality_gates=QualityGateConfig(...)` to
 `generate_reporting_product(...)` or `build_report_data(...)` to evaluate thresholds such as minimum pass rate,
