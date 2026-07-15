@@ -43,6 +43,11 @@ automation-core/
         models.py
         opener.py
         product.py
+      healing/
+        audit.py
+        models.py
+        reporting.py
+        scoring.py
   tests/
 ```
 
@@ -209,6 +214,37 @@ from automation_core.reporting import assert_valid_report
 
 assert_valid_report(recorder.report)
 ```
+
+## Runtime auto-healing foundation
+
+`automation_core.healing` is a domain-neutral foundation for web and mobile runtime auto-healing. It deliberately
+does not inspect browser DOM, mobile XML/source, accessibility trees, pages, drivers, sessions, or devices.
+
+Core owns:
+
+- `LocatorDescriptor`: original selector/locator data as plain strings and metadata.
+- `CandidateDescriptor`: adapter-discovered alternative locator data and scoring signals.
+- `HealingConfig`: mode, thresholds, ambiguity tolerance, allowed actions/categories, and allow/deny patterns.
+- `evaluate_healing(...)`: ranks candidates, applies safety gates, and returns a JSON-safe `HealingResult`.
+- JSONL audit helpers for durable healing attempt records.
+- Reporting helpers that add healing events to `TestCaseReport.metadata["healing_events"]`.
+
+Framework adapters own:
+
+- Web DOM/accessibility inspection and candidate generation.
+- Mobile native/hybrid/source inspection and candidate generation.
+- Actually applying a selected Playwright/Selenium/Appium locator.
+
+Modes:
+
+- `disabled`: default; ranks are available only when an adapter calls the evaluator, but no behavior changes.
+- `suggest`: ranks and records suggestions without applying them.
+- `apply`: permits adapters to apply only the best candidate when it passes score, ambiguity, action, category, and
+  pattern gates.
+
+The reporting timeline reads `healing_events` metadata and renders each healing attempt as a timeline event. Test
+detail pages already display the full metadata block, so adapters can expose the selected candidate, score, reasons,
+and rejection details without custom framework-specific report code.
 
 ### Matrix generalization
 
