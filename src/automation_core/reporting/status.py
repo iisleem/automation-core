@@ -21,7 +21,7 @@ MATRIX_STATUSES = (
 
 
 def normalized_status(status: Any) -> str:
-    return str(status or "").lower()
+    return str(status or "").strip().lower()
 
 
 def is_blocking_failure_status(status: Any) -> bool:

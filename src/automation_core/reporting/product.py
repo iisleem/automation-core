@@ -1324,7 +1324,8 @@ def _page(title: str, body: str) -> str:
   <style>
     :root {{ color-scheme: light; --ink:#172033; --muted:#5b6472; --line:#dbe3ec; --panel:#ffffff; --bg:#f5f7fa; --accent:#0f766e; --accent-2:#2563eb; --danger:#b91c1c; --warn:#b45309; --ok:#047857; --shadow:0 12px 30px rgba(15,23,42,.08); }}
     * {{ box-sizing:border-box; }}
-    body {{ margin:0; font-family: Arial, sans-serif; color:var(--ink); background:linear-gradient(180deg,#eef3f8 0,#f7f9fb 260px,#f5f7fa 100%); overflow-x:hidden; }}
+    html,body {{ max-width:100%; overflow-x:hidden; }}
+    body {{ margin:0; font-family: Arial, sans-serif; color:var(--ink); background:linear-gradient(180deg,#eef3f8 0,#f7f9fb 260px,#f5f7fa 100%); }}
     .hero {{ background:linear-gradient(135deg,#0d1b2a,#142f43); color:#fff; padding:30px clamp(18px,4vw,42px); display:flex; justify-content:space-between; gap:18px; align-items:flex-start; border-bottom:1px solid rgba(255,255,255,.16); }}
     .hero.compact {{ padding:22px clamp(18px,4vw,42px); }}
     h1 {{ margin:0 0 8px; font-size:clamp(24px,3vw,34px); letter-spacing:0; overflow-wrap:anywhere; }}
@@ -1332,10 +1333,10 @@ def _page(title: str, body: str) -> str:
     h3 {{ margin:0 0 10px; font-size:15px; }}
     p {{ margin:0; color:inherit; overflow-wrap:anywhere; }}
     .eyebrow {{ color:#b7c7d7; font-size:12px; text-transform:uppercase; letter-spacing:0; margin-bottom:7px; overflow-wrap:anywhere; }}
-    .app-nav {{ position:sticky; top:0; z-index:3; display:flex; gap:6px; flex-wrap:nowrap; overflow-x:auto; padding:12px clamp(18px,4vw,42px); background:rgba(255,255,255,.96); border-bottom:1px solid var(--line); box-shadow:0 1px 0 rgba(15,23,42,.04); scrollbar-gutter:stable; scrollbar-width:thin; -webkit-overflow-scrolling:touch; }}
+    .app-nav {{ position:sticky; top:0; z-index:3; display:flex; gap:6px; flex-wrap:wrap; overflow-x:hidden; width:100%; max-width:100vw; min-width:0; padding:12px clamp(18px,4vw,42px); background:rgba(255,255,255,.96); border-bottom:1px solid var(--line); box-shadow:0 1px 0 rgba(15,23,42,.04); }}
     .app-nav::-webkit-scrollbar {{ height:6px; }}
     .app-nav::-webkit-scrollbar-thumb {{ background:#cbd5e1; border-radius:999px; }}
-    .app-nav a {{ color:#0f5b99; font-weight:700; text-decoration:none; padding:8px 10px; border-radius:8px; white-space:nowrap; }}
+    .app-nav a {{ color:#0f5b99; font-weight:700; text-decoration:none; padding:8px 10px; border-radius:8px; white-space:nowrap; min-width:0; }}
     .app-nav a.active {{ background:#e7f3ff; color:#0b4d83; box-shadow:inset 0 0 0 1px #bfdbfe; }}
     section {{ margin:22px clamp(18px,4vw,42px); max-width:100%; }}
     article {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; min-width:0; max-width:100%; overflow:hidden; box-shadow:var(--shadow); }}
@@ -1427,6 +1428,8 @@ def _page(title: str, body: str) -> str:
     [hidden] {{ display:none !important; }}
     @media (max-width:720px) {{
       .hero {{ flex-direction:column; }}
+      .app-nav {{ position:static; gap:5px; padding:10px 12px; }}
+      .app-nav a {{ flex:1 1 calc(33.333% - 6px); padding:8px 6px; text-align:center; white-space:normal; line-height:1.15; overflow-wrap:anywhere; }}
       .toolbar label {{ flex:1 1 100%; }}
       .table-wrap.wide {{ overflow-x:visible; }}
       .table-wrap.wide table {{ min-width:0; border:0; background:transparent; table-layout:auto; }}
