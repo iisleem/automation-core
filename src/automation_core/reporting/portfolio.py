@@ -385,7 +385,9 @@ def _page(title: str, body: str, page_kind: str) -> str:
     p {{ margin:0; overflow-wrap:anywhere; }}
     a {{ color:#0f5b99; }}
     .eyebrow {{ color:#b7c7d7; font-size:12px; text-transform:uppercase; letter-spacing:0; margin-bottom:7px; }}
-    .app-nav {{ position:sticky; top:0; z-index:3; display:flex; gap:6px; flex-wrap:nowrap; overflow-x:auto; padding:12px clamp(18px,4vw,42px); background:rgba(255,255,255,.96); border-bottom:1px solid var(--line); box-shadow:0 1px 0 rgba(15,23,42,.04); scrollbar-gutter:stable; }}
+    .app-nav {{ position:sticky; top:0; z-index:3; display:flex; gap:6px; flex-wrap:nowrap; overflow-x:auto; padding:12px clamp(18px,4vw,42px); background:rgba(255,255,255,.96); border-bottom:1px solid var(--line); box-shadow:0 1px 0 rgba(15,23,42,.04); scrollbar-gutter:stable; scrollbar-width:thin; -webkit-overflow-scrolling:touch; }}
+    .app-nav::-webkit-scrollbar {{ height:6px; }}
+    .app-nav::-webkit-scrollbar-thumb {{ background:#cbd5e1; border-radius:999px; }}
     .app-nav a {{ color:#0f5b99; font-weight:700; text-decoration:none; padding:8px 10px; border-radius:8px; white-space:nowrap; }}
     .app-nav a.active {{ background:#e7f3ff; color:#0b4d83; box-shadow:inset 0 0 0 1px #bfdbfe; }}
     section {{ margin:22px clamp(18px,4vw,42px); max-width:100%; }}
@@ -414,12 +416,13 @@ def _page(title: str, body: str, page_kind: str) -> str:
     .low {{ color:#047857; background:#dff7ed; }}
     .medium {{ color:#92400e; background:#fef3c7; }}
     .high {{ color:#b91c1c; background:#fee2e2; }}
-    .score-line {{ display:grid; gap:6px; min-width:0; }}
+    .score-line {{ display:grid; gap:6px; min-width:0; justify-items:end; }}
     .score-line strong {{ font-size:28px; }}
     .signal-row {{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }}
     .report-card-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(330px,100%),1fr)); gap:14px; }}
     .report-card {{ display:grid; gap:12px; align-content:start; }}
     .card-head {{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }}
+    .card-head > * {{ min-width:0; }}
     .card-actions {{ display:flex; flex-wrap:wrap; gap:8px; }}
     .mini-metrics {{ display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }}
     .mini-metrics span {{ background:#f8fafc; border:1px solid #e9edf2; border-radius:8px; padding:8px; min-width:0; }}
@@ -438,6 +441,18 @@ def _page(title: str, body: str, page_kind: str) -> str:
       .hero {{ flex-direction:column; }}
       .toolbar label {{ flex:1 1 100%; }}
       .hbar-row {{ grid-template-columns:1fr; }}
+      .hbar-label {{ white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere; }}
+      .card-head {{ display:grid; grid-template-columns:1fr; }}
+      .score-line {{ justify-items:start; }}
+      .table-wrap.wide {{ overflow-x:visible; }}
+      .table-wrap.wide table {{ min-width:0; border:0; background:transparent; table-layout:auto; }}
+      .table-wrap.wide thead {{ display:none; }}
+      .table-wrap.wide tbody,.table-wrap.wide tr,.table-wrap.wide td {{ display:block; width:100%; }}
+      .table-wrap.wide tr {{ margin:0 0 12px; border:1px solid var(--line); border-radius:8px; background:#fff; padding:8px 10px; }}
+      .table-wrap.wide td {{ border-bottom:1px solid #e9edf2; padding:8px 0; }}
+      .table-wrap.wide td:last-child {{ border-bottom:0; }}
+      .table-wrap.wide td::before {{ content:attr(data-label); display:block; margin-bottom:3px; color:var(--muted); font-size:11px; font-weight:700; text-transform:uppercase; }}
+      .table-wrap.wide td[colspan]::before {{ display:none; }}
       .mini-metrics {{ grid-template-columns:repeat(2,1fr); }}
     }}
   </style>
@@ -456,12 +471,32 @@ function portfolioData() {{
   const node = document.getElementById('portfolio-data-json');
   return node ? JSON.parse(node.textContent) : {{reports: [], filter_options: {{}}}};
 }}
-function optionLabel(value) {{ return value || '-'; }}
+function escapeHtml(value) {{
+  const text = value === null || value === undefined ? '' : String(value);
+  return text.replace(/[&<>"']/g, (char) => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[char]));
+}}
+function escapeAttr(value) {{
+  return escapeHtml(value);
+}}
+function classToken(value, fallback = 'unknown') {{
+  const token = String(value || fallback).toLowerCase().replace(/[^a-z0-9_-]+/g, '_');
+  return token || fallback;
+}}
+function safeHref(value, fallback = '#') {{
+  const text = value === null || value === undefined ? '' : String(value).trim();
+  if (!text || /^(javascript|data|vbscript):/i.test(text) || /[\\u000d\\u000a]/.test(text)) return fallback;
+  return escapeAttr(text);
+}}
+function num(value, fallback = 0) {{
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}}
+function optionLabel(value) {{ return escapeHtml(value || '-'); }}
 function populateFilters(data) {{
   document.querySelectorAll('[data-portfolio-filter]').forEach((select) => {{
     const field = select.dataset.portfolioFilter;
     const selected = select.value;
-    select.innerHTML = '<option value="">All</option>' + (data.filter_options[field] || []).map((value) => `<option value="${{value}}">${{optionLabel(value)}}</option>`).join('');
+    select.innerHTML = '<option value="">All</option>' + (data.filter_options[field] || []).map((value) => `<option value="${{escapeAttr(value)}}">${{optionLabel(value)}}</option>`).join('');
     select.value = selected;
   }});
 }}
@@ -475,9 +510,9 @@ function filteredReports(data) {{
   }});
 }}
 function metric(label, value) {{
-  return `<div class="metric"><strong>${{value}}</strong>${{label}}</div>`;
+  return `<div class="metric"><strong>${{escapeHtml(value)}}</strong>${{escapeHtml(label)}}</div>`;
 }}
-function statusClass(status) {{ return status || 'unknown'; }}
+function statusClass(status) {{ return classToken(status); }}
 function sum(items, field) {{ return items.reduce((total, item) => total + Number(item[field] || 0), 0); }}
 function countBy(items, field) {{
   return items.reduce((acc, item) => {{
@@ -496,9 +531,9 @@ function mergeCounters(items, field) {{
 }}
 function barChart(values, empty = 'No data.') {{
   const entries = Object.entries(values).filter(([, value]) => Number(value || 0));
-  if (!entries.length) return `<p class="empty-state">${{empty}}</p>`;
+  if (!entries.length) return `<p class="empty-state">${{escapeHtml(empty)}}</p>`;
   const max = Math.max(...entries.map(([, value]) => Number(value || 0)), 1);
-  return entries.sort((a, b) => b[1] - a[1]).slice(0, 12).map(([key, value]) => `<div class="hbar-row"><div class="hbar-label" title="${{key}}">${{key}}</div><div class="hbar-track"><span class="hbar-fill" style="width:${{Math.max(4, Math.round((value / max) * 100))}}%"></span></div><strong>${{value}}</strong></div>`).join('');
+  return entries.sort((a, b) => b[1] - a[1]).slice(0, 12).map(([key, value]) => `<div class="hbar-row"><div class="hbar-label" title="${{escapeAttr(key)}}">${{escapeHtml(key)}}</div><div class="hbar-track"><span class="hbar-fill" style="width:${{Math.max(4, Math.round((num(value) / max) * 100))}}%"></span></div><strong>${{escapeHtml(value)}}</strong></div>`).join('');
 }}
 function trendChart(items) {{
   const reports = [...items].reverse().slice(-14);
@@ -507,8 +542,12 @@ function trendChart(items) {{
   const x = reports.length === 1 ? [width / 2] : reports.map((_, index) => 30 + index * ((width - 60) / (reports.length - 1)));
   const y = reports.map((report) => height - 32 - (Number(report.pass_rate || 0) / 100) * (height - 64));
   const points = x.map((value, index) => `${{value.toFixed(1)}},${{y[index].toFixed(1)}}`).join(' ');
-  const dots = reports.map((report, index) => `<circle cx="${{x[index].toFixed(1)}}" cy="${{y[index].toFixed(1)}}" r="4"><title>${{report.run_id}}: ${{report.pass_rate}}%</title></circle>`).join('');
-  const labels = reports.map((report, index) => `<text x="${{x[index].toFixed(1)}}" y="${{height - 8}}" text-anchor="middle" font-size="10">${{String(report.run_id || '').slice(0, 8)}}</text>`).join('');
+  const dots = reports.map((report, index) => `<circle cx="${{x[index].toFixed(1)}}" cy="${{y[index].toFixed(1)}}" r="4"><title>${{escapeHtml(report.run_id)}}: ${{escapeHtml(report.pass_rate)}}%</title></circle>`).join('');
+  const labelStep = Math.max(1, Math.floor(reports.length / 6));
+  const labels = reports.map((report, index) => {{
+    if (index % labelStep !== 0 && index !== reports.length - 1) return '';
+    return `<text x="${{x[index].toFixed(1)}}" y="${{height - 8}}" text-anchor="middle" font-size="10">${{escapeHtml(String(report.run_id || '').slice(0, 8))}}</text>`;
+  }}).join('');
   return `<svg viewBox="0 0 ${{width}} ${{height}}" role="img" aria-label="Pass rate trend"><line x1="30" y1="18" x2="30" y2="${{height - 32}}" stroke="#cbd5e1"/><line x1="30" y1="${{height - 32}}" x2="${{width - 30}}" y2="${{height - 32}}" stroke="#cbd5e1"/><polyline points="${{points}}" fill="none" stroke="#0f766e" stroke-width="3"/><g fill="#0f766e">${{dots}}</g><g fill="#64748b">${{labels}}</g></svg>`;
 }}
 function renderDashboard() {{
@@ -547,12 +586,12 @@ function frameworkHealth(items) {{
     groups[key].passRate += Number(item.pass_rate || 0);
   }});
   const rows = Object.entries(groups).map(([name, value]) => [name, Math.round(value.passRate / Math.max(value.runs, 1)), value]);
-  return barChart(Object.fromEntries(rows.map(([name, passRate]) => [name, passRate])), 'No framework data.') + rows.map(([name, passRate, value]) => `<p class="muted">${{name}}: ${{value.runs}} runs, ${{value.tests}} tests, ${{value.failed}} failed, avg ${{passRate}}%</p>`).join('');
+  return barChart(Object.fromEntries(rows.map(([name, passRate]) => [name, passRate])), 'No framework data.') + rows.map(([name, passRate, value]) => `<p class="muted">${{escapeHtml(name)}}: ${{num(value.runs)}} runs, ${{num(value.tests)}} tests, ${{num(value.failed)}} failed, avg ${{escapeHtml(passRate)}}%</p>`).join('');
 }}
 function attentionList(items) {{
   const attention = items.filter((item) => item.failed_total || item.flaky || item.quality_status === 'failed' || item.risk_level === 'high').slice(0, 8);
   if (!attention.length) return '<p class="empty-state">No failing, flaky, or failed-quality runs in the filtered set.</p>';
-  return `<div class="attention-list">${{attention.map((item) => `<div class="attention-item"><strong><a href="${{item.entry_href}}">${{item.run_id}}</a></strong><br><span class="muted">${{item.generated_display}} · ${{item.framework || '-'}}</span><p>${{item.failed_total}} failed · ${{item.flaky}} flaky · ${{item.pass_rate}}% pass rate · ${{item.risk_level || 'low'}} risk</p></div>`).join('')}}</div>`;
+  return `<div class="attention-list">${{attention.map((item) => `<div class="attention-item"><strong><a href="${{safeHref(item.entry_href)}}">${{escapeHtml(item.run_id)}}</a></strong><br><span class="muted">${{escapeHtml(item.generated_display)}} · ${{escapeHtml(item.framework || '-')}}</span><p>${{num(item.failed_total)}} failed · ${{num(item.flaky)}} flaky · ${{escapeHtml(item.pass_rate)}}% pass rate · ${{escapeHtml(item.risk_level || 'low')}} risk</p></div>`).join('')}}</div>`;
 }}
 function coverageCloud(items) {{
   const tags = new Map();
@@ -561,7 +600,17 @@ function coverageCloud(items) {{
     [...(item.profiles || []), ...(item.environments || []), ...(item.browsers || []), ...(item.devices || [])].forEach((value) => tags.set(value, value));
   }});
   if (!tags.size) return '<p class="empty-state">No project, framework, profile, environment, browser, or device metadata found.</p>';
-  return `<div class="tag-cloud">${{Array.from(tags.values()).slice(0, 40).map((value) => `<span class="tag">${{value}}</span>`).join('')}}</div>`;
+  return `<div class="tag-cloud">${{Array.from(tags.values()).slice(0, 40).map((value) => `<span class="tag">${{escapeHtml(value)}}</span>`).join('')}}</div>`;
+}}
+function hydrateResponsiveTables(scope = document) {{
+  scope.querySelectorAll('.table-wrap.wide table').forEach((table) => {{
+    const headers = Array.from(table.querySelectorAll('thead th')).map((header) => header.textContent.trim());
+    table.querySelectorAll('tbody tr').forEach((row) => {{
+      Array.from(row.children).forEach((cell, index) => {{
+        if (cell.tagName === 'TD' && !cell.dataset.label) cell.dataset.label = headers[index] || '';
+      }});
+    }});
+  }});
 }}
 function renderGallery() {{
   const data = portfolioData();
@@ -573,18 +622,20 @@ function renderGallery() {{
   if (!root) return;
   const view = document.getElementById('gallery-view')?.value || 'cards';
   if (view === 'table') {{
-    root.className = 'table-wrap';
+    root.className = 'table-wrap wide';
     root.innerHTML = `<table><thead><tr><th>Status</th><th>Run</th><th>Framework</th><th>Generated</th><th>Tests</th><th>Pass Rate</th><th>Quality</th><th>Signals</th><th>Open</th></tr></thead><tbody>${{items.map(reportTableRow).join('') || '<tr><td colspan="9">No reports match the filters.</td></tr>'}}</tbody></table>`;
+    hydrateResponsiveTables(root);
     return;
   }}
   root.className = 'report-card-grid';
   root.innerHTML = items.map(reportCard).join('') || '<p class="empty-state">No reports match the filters.</p>';
 }}
 function reportCard(item) {{
-  return `<article class="report-card"><div class="card-head"><div><span class="status ${{statusClass(item.status)}}">${{item.status}}</span><h3><a href="${{item.entry_href}}">${{item.run_id || 'run'}}</a></h3><p class="muted">${{item.generated_display}} · ${{item.framework || '-'}}</p></div><div class="score-line"><strong>${{qualityScore(item)}}</strong><span class="status ${{statusClass(item.risk_level)}}">${{item.risk_level || 'low'}}</span></div></div><div class="mini-metrics"><span><strong>${{item.total}}</strong><br>Tests</span><span><strong>${{item.failed_total}}</strong><br>Failed</span><span><strong>${{item.flaky}}</strong><br>Flaky</span><span><strong>${{item.duration_display}}</strong><br>Duration</span></div><p class="muted">${{item.project_name || '-'}} · ${{(item.profiles || []).join(', ') || (item.environments || []).join(', ') || '-'}}</p><p class="muted">New ${{item.new_failure_count || 0}} · Known ${{item.known_failure_count || 0}} · Resolved ${{item.resolved_failure_count || 0}} · Pass delta ${{deltaLabel(item.pass_rate_delta, '%')}}</p><div class="card-actions"><a class="button" href="${{item.entry_href}}">Dashboard</a><a class="button" href="${{item.executive_href}}">Executive</a><a class="button" href="${{item.compare_href}}">Compare</a><a class="button" href="${{item.tests_href}}">Tests</a><a class="button" href="${{item.share_href}}">Share</a></div></article>`;
+  const scope = (item.profiles || []).join(', ') || (item.environments || []).join(', ') || '-';
+  return `<article class="report-card"><div class="card-head"><div><span class="status ${{statusClass(item.status)}}">${{escapeHtml(item.status)}}</span><h3><a href="${{safeHref(item.entry_href)}}">${{escapeHtml(item.run_id || 'run')}}</a></h3><p class="muted">${{escapeHtml(item.generated_display)}} · ${{escapeHtml(item.framework || '-')}}</p></div><div class="score-line"><strong>${{escapeHtml(qualityScore(item))}}</strong><span class="status ${{statusClass(item.risk_level)}}">${{escapeHtml(item.risk_level || 'low')}}</span></div></div><div class="mini-metrics"><span><strong>${{num(item.total)}}</strong><br>Tests</span><span><strong>${{num(item.failed_total)}}</strong><br>Failed</span><span><strong>${{num(item.flaky)}}</strong><br>Flaky</span><span><strong>${{escapeHtml(item.duration_display)}}</strong><br>Duration</span></div><p class="muted">${{escapeHtml(item.project_name || '-')}} · ${{escapeHtml(scope)}}</p><p class="muted">New ${{num(item.new_failure_count)}} · Known ${{num(item.known_failure_count)}} · Resolved ${{num(item.resolved_failure_count)}} · Pass delta ${{escapeHtml(deltaLabel(item.pass_rate_delta, '%'))}}</p><div class="card-actions"><a class="button" href="${{safeHref(item.entry_href)}}">Dashboard</a><a class="button" href="${{safeHref(item.executive_href)}}">Executive</a><a class="button" href="${{safeHref(item.compare_href)}}">Compare</a><a class="button" href="${{safeHref(item.tests_href)}}">Tests</a><a class="button" href="${{safeHref(item.share_href)}}">Share</a></div></article>`;
 }}
 function reportTableRow(item) {{
-  return `<tr><td><span class="status ${{statusClass(item.status)}}">${{item.status}}</span></td><td>${{item.run_id}}</td><td>${{item.framework || '-'}}</td><td>${{item.generated_display}}</td><td>${{item.total}}</td><td>${{item.pass_rate}}%</td><td>${{qualityScore(item)}} · <span class="status ${{statusClass(item.risk_level)}}">${{item.risk_level || 'low'}}</span></td><td>${{item.failed_total}} failed · ${{item.flaky}} flaky · ${{item.new_failure_count || 0}} new · ${{item.artifact_count}} artifacts</td><td><a href="${{item.entry_href}}">Open</a> · <a href="${{item.compare_href}}">Compare</a></td></tr>`;
+  return `<tr><td><span class="status ${{statusClass(item.status)}}">${{escapeHtml(item.status)}}</span></td><td>${{escapeHtml(item.run_id)}}</td><td>${{escapeHtml(item.framework || '-')}}</td><td>${{escapeHtml(item.generated_display)}}</td><td>${{num(item.total)}}</td><td>${{escapeHtml(item.pass_rate)}}%</td><td>${{escapeHtml(qualityScore(item))}} · <span class="status ${{statusClass(item.risk_level)}}">${{escapeHtml(item.risk_level || 'low')}}</span></td><td>${{num(item.failed_total)}} failed · ${{num(item.flaky)}} flaky · ${{num(item.new_failure_count)}} new · ${{num(item.artifact_count)}} artifacts</td><td><a href="${{safeHref(item.entry_href)}}">Open</a> · <a href="${{safeHref(item.compare_href)}}">Compare</a></td></tr>`;
 }}
 function qualityScore(item) {{
   return item && item.quality_score !== null && item.quality_score !== undefined ? `${{item.quality_score}}` : 'N/A';

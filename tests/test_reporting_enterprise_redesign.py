@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from urllib.parse import quote
+
+import pytest
 
 from automation_core.reporting import (
     ReportInsightConfig,
@@ -180,3 +183,112 @@ def test_enterprise_report_pages_sidecar_and_portfolio_surface_redesign(tmp_path
     assert "Quality Score Trend" in portfolio_html
     assert "Risk Levels" in portfolio_html
     assert "Compare" in gallery_html
+
+
+def test_enterprise_report_client_rendering_escapes_json_driven_values(tmp_path):
+    root = tmp_path / "portfolio"
+    history_dir = tmp_path / "history"
+    payload = '<img src=x onerror="document.body.dataset.xss=1">'
+    previous = RunReport(
+        run_id="previous-safe",
+        project_name="automation-core",
+        framework="pytest",
+        generated_at=datetime(2026, 2, 2, tzinfo=UTC),
+        tests=[TestCaseReport(id="previous", name="test_previous", status="passed")],
+    )
+    previous_dir = prepare_timestamped_report_dir(root, run_id=previous.run_id, generated_at=previous.generated_at)
+    generate_reporting_product(previous, previous_dir, history_dir=history_dir)
+
+    report = RunReport(
+        run_id=f"run-{payload}",
+        project_name=f"project-{payload}",
+        framework='<svg onload="document.body.dataset.framework=1"></svg>',
+        generated_at=datetime(2026, 2, 3, tzinfo=UTC),
+        tests=[
+            TestCaseReport(
+                id="malicious",
+                name=payload,
+                full_name='<svg onload="document.body.dataset.xss2=1"></svg>',
+                status="failed",
+                failure_message="<script>document.body.dataset.xss3=1</script>",
+                profile=f"profile-{payload}",
+                environment=f"env-{payload}",
+            )
+        ],
+    )
+    current_dir = prepare_timestamped_report_dir(root, run_id=report.run_id, generated_at=report.generated_at)
+
+    generate_reporting_product(report, current_dir, history_dir=history_dir)
+    generate_report_portfolio(root, current_report_dir=current_dir)
+
+    explore_html = (current_dir / "explore.html").read_text(encoding="utf-8")
+    dashboard_html = (current_dir / "index.html").read_text(encoding="utf-8")
+    compare_html = (current_dir / "compare.html").read_text(encoding="utf-8")
+    portfolio_html = (root / "index.html").read_text(encoding="utf-8")
+    gallery_html = (root / "reports.html").read_text(encoding="utf-8")
+
+    for html in (explore_html, portfolio_html, gallery_html):
+        assert "function escapeHtml" in html
+        assert "function safeHref" in html
+        assert "javascript|data|vbscript" in html
+        assert "/[\\u000d\\u000a]/.test(text)" in html
+        assert "/[\n]/.test(text)" not in html
+
+    assert "escapeHtml(item.name)" in explore_html
+    assert "safeHref(item.detail_href)" in explore_html
+    assert "escapeHtml(item.run_id" in portfolio_html
+    assert "safeHref(item.entry_href)" in portfolio_html
+    assert "escapeHtml(item.run_id" in gallery_html
+    assert "safeHref(item.entry_href)" in gallery_html
+    assert "className = 'table-wrap wide'" in gallery_html
+    assert "hydrateResponsiveTables(root)" in gallery_html
+    assert ".compare-table table" in compare_html
+    assert "trend-svg" in dashboard_html
+    assert "labelStep" in portfolio_html
+
+
+def test_report_client_rendering_does_not_execute_malicious_values_in_browser(tmp_path):
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    root = tmp_path / "portfolio"
+    report = RunReport(
+        run_id='run<img src=x onerror="document.body.dataset.run=1">',
+        project_name='<img src=x onerror="document.body.dataset.project=1">',
+        framework='<img src=x onerror="document.body.dataset.framework=1">',
+        generated_at=datetime(2026, 2, 4, tzinfo=UTC),
+        tests=[
+            TestCaseReport(
+                id="malicious",
+                name='<img src=x onerror="document.body.dataset.xss=1">',
+                full_name='<svg onload="document.body.dataset.xss2=1"></svg>',
+                status="passed",
+                profile='<img src=x onerror="document.body.dataset.profile=1">',
+            )
+        ],
+    )
+    current_dir = prepare_timestamped_report_dir(root, run_id=report.run_id, generated_at=report.generated_at)
+
+    generate_reporting_product(report, current_dir)
+    generate_report_portfolio(root, current_report_dir=current_dir)
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        page = browser.new_page(viewport={"width": 900, "height": 700})
+        page_errors: list[str] = []
+        page.on("pageerror", lambda error: page_errors.append(str(error)))
+        for path in (current_dir / "explore.html", root / "index.html", root / "reports.html"):
+            page.goto("file://" + quote(str(path)), wait_until="load")
+            page.wait_for_timeout(200)
+            assert page_errors == []
+            assert page.evaluate("JSON.stringify(document.body.dataset)") == '{"visualSystem":"enterprise-redesign"}'
+            assert page.locator("img").count() == 0
+            assert page.locator("svg[onload], img[onerror]").count() == 0
+        page.goto("file://" + quote(str(current_dir / "explore.html")), wait_until="load")
+        page.wait_for_timeout(200)
+        assert page_errors == []
+        assert page.locator("#explore-result-count").inner_text() == "1 tests"
+        page.goto("file://" + quote(str(root / "reports.html")), wait_until="load")
+        page.wait_for_timeout(200)
+        assert page_errors == []
+        assert page.locator("#gallery-count").inner_text() == "1 reports"
+        assert page.locator(".report-card").count() == 1
+        browser.close()
