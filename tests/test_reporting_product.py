@@ -389,6 +389,10 @@ def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
     assert "Compare Runs" in compare_html
     assert 'data-filter-search="compare-metrics"' in compare_html
     assert 'data-filter-search="compare-failures"' in compare_html
+    assert "Failure Movement" in compare_html
+    assert "failure-movement" in compare_html
+    assert "<th>Kind</th>" in compare_html
+    assert '<section class="grid three" data-filter-root="compare-failures">' not in compare_html
     assert "Smart Failure Summary" in detail_html
     assert 'href="../executive.html"' in detail_html
     assert 'href="../compare.html"' in detail_html

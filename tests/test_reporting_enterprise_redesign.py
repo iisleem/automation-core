@@ -167,8 +167,14 @@ def test_enterprise_report_pages_sidecar_and_portfolio_surface_redesign(tmp_path
     assert "Risk Signal" in executive_html
     assert 'data-filter-search="compare-metrics"' in compare_html
     assert 'data-filter-root="compare-failures"' in compare_html
+    assert "Failure Movement" in compare_html
+    assert "failure-movement" in compare_html
+    assert '<section class="grid three" data-filter-root="compare-failures">' not in compare_html
     assert "Resource Efficiency" in compare_html
     assert "Default Gate Status" in quality_html
+    assert "Failure Impact" in quality_html
+    assert "failure-movement" in quality_html
+    assert '<section class="grid three" data-filter-root="quality-failures">' not in quality_html
     assert "overflow-wrap:anywhere" in dashboard_html
     assert 'href="../compare.html"' in detail_html
     assert "Quality Score Trend" in portfolio_html

@@ -775,18 +775,10 @@ def _render_quality_page(report: RunReport, report_data: dict[str, Any]) -> str:
   </label>
   {_select_filter("quality-kind", "Kind", ["new", "known", "resolved"], data_filter="kind")}
 </section>
-<section class="grid three" data-filter-root="quality-failures">
+<section data-filter-root="quality-failures">
   <article>
-    <h2>New Failures</h2>
-    {_failure_transition_table(transitions["new_failures"], kind="new")}
-  </article>
-  <article>
-    <h2>Known Failures</h2>
-    {_failure_transition_table(transitions["known_failures"], kind="known")}
-  </article>
-  <article>
-    <h2>Resolved Failures</h2>
-    {_failure_transition_table(transitions["resolved_failures"], kind="resolved")}
+    <h2>Failure Movement</h2>
+    {_failure_transition_table(transitions)}
   </article>
 </section>
 """,
@@ -809,7 +801,7 @@ def _render_compare_page(report: RunReport, report_data: dict[str, Any]) -> str:
 </header>
 {_nav("compare")}
 <section class="metrics">
-  {_metric("Previous Run", compare.get("previous_run_id") or "-")}
+  {_metric_with_note("Previous Run", _short_run_id(compare.get("previous_run_id") or ""), compare.get("previous_run_id") or "-")}
   {_metric("Pass Rate Delta", _compare_delta(compare, "pass_rate"))}
   {_metric("Failed Delta", _compare_delta(compare, "failed_broken"))}
   {_metric("Retry Delta", _retry_delta(compare))}
@@ -838,18 +830,10 @@ def _render_compare_page(report: RunReport, report_data: dict[str, Any]) -> str:
   </label>
   {_select_filter("compare-kind", "Kind", ["new", "known", "resolved"], data_filter="kind")}
 </section>
-<section class="grid three" data-filter-root="compare-failures">
+<section data-filter-root="compare-failures">
   <article>
-    <h2>New Failures</h2>
-    {_failure_transition_table(transitions["new_failures"], kind="new")}
-  </article>
-  <article>
-    <h2>Known Failures</h2>
-    {_failure_transition_table(transitions["known_failures"], kind="known")}
-  </article>
-  <article>
-    <h2>Resolved Failures</h2>
-    {_failure_transition_table(transitions["resolved_failures"], kind="resolved")}
+    <h2>Failure Movement</h2>
+    {_failure_transition_table(transitions)}
   </article>
 </section>
 <section class="grid two">
@@ -1606,6 +1590,13 @@ def _metric(label: str, value: Any) -> str:
     return f'<div class="metric"><strong>{_e(value)}</strong>{_e(label)}</div>'
 
 
+def _metric_with_note(label: str, value: Any, note: Any) -> str:
+    return (
+        f'<div class="metric" title="{_e(note)}"><strong>{_e(value)}</strong>{_e(label)}'
+        f'<br><span class="muted">{_e(note)}</span></div>'
+    )
+
+
 def _select_filter(
     element_id: str,
     label: str,
@@ -2313,6 +2304,12 @@ def _score_percent(score: dict[str, Any]) -> float:
         return 0.0
 
 
+def _short_run_id(value: str, *, limit: int = 18) -> str:
+    if not value:
+        return "-"
+    return value if len(value) <= limit else f"{value[: limit - 1]}..."
+
+
 def _quality_overview(quality: dict[str, Any]) -> str:
     return _key_values(
         {
@@ -2333,15 +2330,21 @@ def _quality_gate_table(quality: dict[str, Any]) -> str:
         f'<td><span class="status {_e(result.get("status", "unknown"))}">{_e(result.get("status", ""))}</span></td>'
         f"<td>{_e(result.get('name', ''))}</td><td>{_e(result.get('metric', ''))}</td>"
         f"<td>{_e(result.get('expected', ''))}</td><td>{_e(result.get('actual', ''))}</td>"
-        f"<td>{_e(result.get('severity', ''))}</td><td>{_e(result.get('message', ''))}</td></tr>"
+        f"<td>{_e(_gate_failure_impact(result))}</td><td>{_e(result.get('message', ''))}</td></tr>"
         for result in results
     )
     empty = '<tr><td colspan="7">No quality gates configured.</td></tr>'
     return (
         '<div class="table-wrap wide"><table><thead><tr><th>Status</th><th>Name</th><th>Metric</th>'
-        "<th>Expected</th><th>Actual</th><th>Severity</th><th>Message</th></tr></thead>"
+        "<th>Expected</th><th>Actual</th><th>Failure Impact</th><th>Message</th></tr></thead>"
         f"<tbody>{rows or empty}</tbody></table></div>"
     )
+
+
+def _gate_failure_impact(result: dict[str, Any]) -> str:
+    if result.get("status") == "passed":
+        return "N/A"
+    return _humanize_label(str(result.get("severity", "")) or "failed")
 
 
 def _failure_transition_counts(transitions: dict[str, Any]) -> str:
@@ -2356,20 +2359,40 @@ def _failure_transition_counts(transitions: dict[str, Any]) -> str:
     )
 
 
-def _failure_transition_table(items: list[dict[str, Any]], *, kind: str) -> str:
+def _failure_transition_table(transitions: dict[str, Any]) -> str:
     rows = "\n".join(
+        _failure_transition_row(item, kind)
+        for kind, key in (
+            ("new", "new_failures"),
+            ("known", "known_failures"),
+            ("resolved", "resolved_failures"),
+        )
+        for item in transitions.get(key, [])
+    )
+    empty = '<tr><td colspan="5">No failure movement.</td></tr>'
+    return (
+        '<div class="table-wrap wide failure-movement"><table><thead><tr><th>Kind</th><th>Test</th>'
+        f"<th>Status</th><th>Failure</th><th>Link</th></tr></thead><tbody>{rows or empty}</tbody></table></div>"
+    )
+
+
+def _failure_transition_row(item: dict[str, Any], kind: str) -> str:
+    return (
         f'<tr data-filter-row data-kind="{_e(kind)}" data-search="{_e(kind)} {_e(_row_search(item))}">'
+        f'<td><span class="status {_e(_movement_status(kind))}">{_e(kind)}</span></td>'
         f'<td>{_e(item.get("name", ""))}<br><span class="muted">{_e(item.get("identity", ""))}</span></td>'
         f"<td>{_e(item.get('status') or item.get('current_status') or '')}</td>"
         f"<td>{_e(item.get('failure_title') or item.get('failure_category') or '')}</td>"
         f"<td>{_failure_transition_link(item)}</td></tr>"
-        for item in items
     )
-    empty = '<tr><td colspan="4">No items.</td></tr>'
-    return (
-        '<div class="table-wrap"><table><thead><tr><th>Test</th><th>Status</th>'
-        f"<th>Failure</th><th>Link</th></tr></thead><tbody>{rows or empty}</tbody></table></div>"
-    )
+
+
+def _movement_status(kind: str) -> str:
+    if kind == "resolved":
+        return "passed"
+    if kind == "known":
+        return "warning"
+    return "failed"
 
 
 def _failure_transition_link(item: dict[str, Any]) -> str:

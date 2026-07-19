@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -185,11 +186,26 @@ def test_quality_sidecar_and_page_include_gates_transitions_and_comparison(tmp_p
     assert "Gate Results" in quality_html
     assert "New Failures" in quality_html
     assert "Run Comparison" in quality_html
+    assert "Failure Impact" in quality_html
+    assert "<th>Severity</th>" not in quality_html
+    assert "<td>N/A</td>" in quality_html
+    passed_gate_rows = [
+        row
+        for row in re.findall(r"<tr[^>]*>.*?</tr>", quality_html, re.DOTALL)
+        if '<span class="status passed">passed</span>' in row and ("Minimum" in row or "Maximum" in row)
+    ]
+    assert passed_gate_rows
+    assert all("<td>N/A</td>" in row for row in passed_gate_rows)
+    assert all("<td>failed</td>" not in row for row in passed_gate_rows)
     assert 'data-filter-search="quality-gates"' in quality_html
     assert 'data-filter-root="quality-gates"' in quality_html
     assert '<section class="grid two">\n  <article data-filter-root="quality-gates">' not in quality_html
     assert 'data-filter-search="quality-failures"' in quality_html
     assert 'data-filter-root="quality-failures"' in quality_html
+    assert "Failure Movement" in quality_html
+    assert "failure-movement" in quality_html
+    assert "<th>Kind</th>" in quality_html
+    assert '<section class="grid three" data-filter-root="quality-failures">' not in quality_html
     assert 'href="../quality.html"' in detail_text
     assert bundle["quality"]["configured"] is True
     assert bundle["failure_transitions"]["counts"]["new"] == 1
