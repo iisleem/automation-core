@@ -1331,7 +1331,9 @@ def _page(title: str, body: str) -> str:
     h3 {{ margin:0 0 10px; font-size:15px; }}
     p {{ margin:0; color:inherit; overflow-wrap:anywhere; }}
     .eyebrow {{ color:#b7c7d7; font-size:12px; text-transform:uppercase; letter-spacing:0; margin-bottom:7px; overflow-wrap:anywhere; }}
-    .app-nav {{ position:sticky; top:0; z-index:3; display:flex; gap:6px; flex-wrap:nowrap; overflow-x:auto; padding:12px clamp(18px,4vw,42px); background:rgba(255,255,255,.96); border-bottom:1px solid var(--line); box-shadow:0 1px 0 rgba(15,23,42,.04); scrollbar-gutter:stable; }}
+    .app-nav {{ position:sticky; top:0; z-index:3; display:flex; gap:6px; flex-wrap:nowrap; overflow-x:auto; padding:12px clamp(18px,4vw,42px); background:rgba(255,255,255,.96); border-bottom:1px solid var(--line); box-shadow:0 1px 0 rgba(15,23,42,.04); scrollbar-gutter:stable; scrollbar-width:thin; -webkit-overflow-scrolling:touch; }}
+    .app-nav::-webkit-scrollbar {{ height:6px; }}
+    .app-nav::-webkit-scrollbar-thumb {{ background:#cbd5e1; border-radius:999px; }}
     .app-nav a {{ color:#0f5b99; font-weight:700; text-decoration:none; padding:8px 10px; border-radius:8px; white-space:nowrap; }}
     .app-nav a.active {{ background:#e7f3ff; color:#0b4d83; box-shadow:inset 0 0 0 1px #bfdbfe; }}
     section {{ margin:22px clamp(18px,4vw,42px); max-width:100%; }}
@@ -1354,6 +1356,7 @@ def _page(title: str, body: str) -> str:
     .result-strip {{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; }}
     .table-wrap {{ width:100%; max-width:100%; overflow-x:auto; border-radius:8px; }}
     .table-wrap.wide table {{ min-width:720px; table-layout:auto; }}
+    .compare-table table {{ min-width:520px; }}
     table {{ border-collapse:collapse; width:100%; min-width:0; background:#fff; border:1px solid var(--line); table-layout:fixed; }}
     th,td {{ border-bottom:1px solid #e9edf2; padding:10px; text-align:left; vertical-align:top; overflow-wrap:anywhere; word-break:break-word; min-width:0; }}
     th {{ background:#eef2f6; color:#263345; }}
@@ -1448,6 +1451,26 @@ def _page(title: str, body: str) -> str:
         line.hidden = query && !line.textContent.toLowerCase().includes(query);
       }}
     }}
+    function escapeHtml(value) {{
+      const text = value === null || value === undefined ? '' : String(value);
+      return text.replace(/[&<>"']/g, (char) => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[char]));
+    }}
+    function escapeAttr(value) {{
+      return escapeHtml(value);
+    }}
+    function classToken(value, fallback = 'unknown') {{
+      const token = String(value || fallback).toLowerCase().replace(/[^a-z0-9_-]+/g, '_');
+      return token || fallback;
+    }}
+    function safeHref(value, fallback = '#') {{
+      const text = value === null || value === undefined ? '' : String(value).trim();
+      if (!text || /^(javascript|data|vbscript):/i.test(text) || /[\\u000d\\u000a]/.test(text)) return fallback;
+      return escapeAttr(text);
+    }}
+    function num(value, fallback = 0) {{
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    }}
     function textOf(row) {{
       return (row.dataset.search || row.textContent || '').toLowerCase();
     }}
@@ -1507,7 +1530,7 @@ def _page(title: str, body: str) -> str:
       const entries = Object.entries(values).filter(([, value]) => value);
       if (!entries.length) return '<p class="muted">No data.</p>';
       const max = Math.max(...entries.map(([, value]) => Number(value) || 0), 1);
-      return entries.map(([key, value]) => `<div class="hbar-row"><div class="hbar-label" title="${{key}}">${{key}}</div><div class="hbar-track"><span class="hbar-fill" style="width:${{Math.round((value / max) * 100)}}%"></span></div><strong>${{value}}</strong></div>`).join('');
+      return entries.map(([key, value]) => `<div class="hbar-row"><div class="hbar-label" title="${{escapeAttr(key)}}">${{escapeHtml(key)}}</div><div class="hbar-track"><span class="hbar-fill" style="width:${{Math.round((num(value) / max) * 100)}}%"></span></div><strong>${{escapeHtml(value)}}</strong></div>`).join('');
     }}
     function renderExplore(items) {{
       const root = document.getElementById('explore-results');
@@ -1527,7 +1550,7 @@ def _page(title: str, body: str) -> str:
         (!domain || item.domain === domain) &&
         (!profile || item.profile === profile) &&
         (!environment || item.environment === environment) &&
-        (!failure || item.failure.category === failure) &&
+        (!failure || ((item.failure || {{}}).category) === failure) &&
         (!flaky || (item.flaky_categories || []).includes(flaky)) &&
         (!artifact || (item.artifact_types || []).includes(artifact)) &&
         (!duration || item.duration_bucket === duration)
@@ -1542,14 +1565,14 @@ def _page(title: str, body: str) -> str:
       document.getElementById('explore-result-count').textContent = `${{filtered.length}} tests`;
       document.getElementById('explore-status-chart').innerHTML = barChart(countBy(filtered, (item) => item.status));
       document.getElementById('explore-duration-chart').innerHTML = barChart(countBy(filtered, (item) => item.duration_bucket));
-      document.getElementById('explore-failure-chart').innerHTML = barChart(countBy(filtered, (item) => item.failure.category));
+      document.getElementById('explore-failure-chart').innerHTML = barChart(countBy(filtered, (item) => (item.failure || {{}}).category));
       if (view === 'cards') {{
         root.className = 'explore-card-grid';
-        root.innerHTML = filtered.map((item) => `<article class="test-card"><span class="status ${{item.status}}">${{item.status}}</span><h3><a href="${{item.detail_href}}">${{item.name}}</a></h3><p class="muted">${{item.full_name || item.test_id}}</p><p>${{item.failure.title}}</p><p class="muted">${{Math.round(item.duration_ms)}} ms · ${{item.profile || item.environment || '-'}}</p></article>`).join('') || '<p class="empty-state">No tests match the filters.</p>';
+        root.innerHTML = filtered.map((item) => `<article class="test-card"><span class="status ${{classToken(item.status)}}">${{escapeHtml(item.status)}}</span><h3><a href="${{safeHref(item.detail_href)}}">${{escapeHtml(item.name)}}</a></h3><p class="muted">${{escapeHtml(item.full_name || item.test_id)}}</p><p>${{escapeHtml((item.failure || {{}}).title || '-')}}</p><p class="muted">${{Math.round(num(item.duration_ms))}} ms · ${{escapeHtml(item.profile || item.environment || '-')}}</p></article>`).join('') || '<p class="empty-state">No tests match the filters.</p>';
         return;
       }}
       root.className = 'table-wrap wide';
-      root.innerHTML = `<table><thead><tr><th>Status</th><th>Test</th><th>Domain</th><th>Profile</th><th>Environment</th><th>Duration</th><th>Failure</th><th>Signals</th></tr></thead><tbody>${{filtered.map((item) => `<tr><td><span class="status ${{item.status}}">${{item.status}}</span></td><td><a href="${{item.detail_href}}">${{item.name}}</a><br><span class="muted">${{item.full_name || item.test_id}}</span></td><td>${{item.domain || '-'}}</td><td>${{item.profile || '-'}}</td><td>${{item.environment || '-'}}</td><td>${{Math.round(item.duration_ms)}} ms</td><td>${{item.failure.title}}</td><td>R:${{item.retry_count}} A:${{item.action_retry_count}} H:${{item.healing_event_count}} Art:${{item.artifact_count}}</td></tr>`).join('') || '<tr><td colspan="8">No tests match the filters.</td></tr>'}}</tbody></table>`;
+      root.innerHTML = `<table><thead><tr><th>Status</th><th>Test</th><th>Domain</th><th>Profile</th><th>Environment</th><th>Duration</th><th>Failure</th><th>Signals</th></tr></thead><tbody>${{filtered.map((item) => `<tr><td><span class="status ${{classToken(item.status)}}">${{escapeHtml(item.status)}}</span></td><td><a href="${{safeHref(item.detail_href)}}">${{escapeHtml(item.name)}}</a><br><span class="muted">${{escapeHtml(item.full_name || item.test_id)}}</span></td><td>${{escapeHtml(item.domain || '-')}}</td><td>${{escapeHtml(item.profile || '-')}}</td><td>${{escapeHtml(item.environment || '-')}}</td><td>${{Math.round(num(item.duration_ms))}} ms</td><td>${{escapeHtml((item.failure || {{}}).title || '-')}}</td><td>R:${{num(item.retry_count)}} A:${{num(item.action_retry_count)}} H:${{num(item.healing_event_count)}} Art:${{num(item.artifact_count)}}</td></tr>`).join('') || '<tr><td colspan="8">No tests match the filters.</td></tr>'}}</tbody></table>`;
       hydrateResponsiveTables(root);
     }}
     function setupExplore() {{
@@ -1695,9 +1718,11 @@ def _trend_chart(points: list[dict[str, Any]]) -> str:
         x_values = [(index / (len(plot) - 1)) * (width - 40) + 20 for index in range(len(plot))]
     y_values = [height - 24 - (float(point.get("pass_rate", 0)) / 100) * (height - 48) for point in plot]
     polyline = " ".join(f"{x:.1f},{y:.1f}" for x, y in zip(x_values, y_values, strict=False))
+    label_step = max(1, len(plot) // 6)
     labels = "".join(
         f'<text x="{x:.1f}" y="{height - 6}" font-size="10" text-anchor="middle">{_e(point.get("run_id", ""))[:8]}</text>'
-        for x, point in zip(x_values, plot, strict=False)
+        for index, (x, point) in enumerate(zip(x_values, plot, strict=False))
+        if index % label_step == 0 or index == len(plot) - 1
     )
     dots = "".join(
         f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4"><title>{_e(point.get("run_id", ""))}: {point.get("pass_rate", 0)}%</title></circle>'
@@ -2413,7 +2438,7 @@ def _run_comparison_detail_view(comparison: dict[str, Any]) -> str:
         for metric, item in values.items()
     )
     return (
-        '<div class="table-wrap"><table><thead><tr><th>Metric</th><th>Current</th><th>Previous</th>'
+        '<div class="table-wrap wide compare-table"><table><thead><tr><th>Metric</th><th>Current</th><th>Previous</th>'
         f"<th>Delta</th></tr></thead><tbody>{rows}</tbody></table></div>"
     )
 
