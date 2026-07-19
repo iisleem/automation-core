@@ -16,6 +16,7 @@ PORTFOLIO_DATA_FILE = "portfolio-data.json"
 
 PRODUCT_REPORT_ENTRIES = {
     "artifacts",
+    "compare.html",
     "data",
     "executive.html",
     "explore.html",
@@ -141,6 +142,18 @@ def _report_entry(output_path: Path, run_dir: Path, report_data: dict[str, Any])
     charts = report_data.get("charts", {}) if isinstance(report_data.get("charts"), dict) else {}
     signals = report_data.get("signals", {}) if isinstance(report_data.get("signals"), dict) else {}
     quality = report_data.get("quality", {}) if isinstance(report_data.get("quality"), dict) else {}
+    quality_score = report_data.get("quality_score", {}) if isinstance(report_data.get("quality_score"), dict) else {}
+    risk_signal = report_data.get("risk_signal", {}) if isinstance(report_data.get("risk_signal"), dict) else {}
+    transitions = (
+        report_data.get("failure_transitions", {}) if isinstance(report_data.get("failure_transitions"), dict) else {}
+    )
+    transition_counts = transitions.get("counts", {}) if isinstance(transitions.get("counts"), dict) else {}
+    compare = report_data.get("compare", {}) if isinstance(report_data.get("compare"), dict) else {}
+    stability = report_data.get("stability", {}) if isinstance(report_data.get("stability"), dict) else {}
+    recovery = report_data.get("recovery", {}) if isinstance(report_data.get("recovery"), dict) else {}
+    resource = (
+        report_data.get("resource_efficiency", {}) if isinstance(report_data.get("resource_efficiency"), dict) else {}
+    )
     health = report_data.get("run", {}).get("health", {}) if isinstance(report_data.get("run"), dict) else {}
     failed_total = int(summary.get("failed", 0) or 0) + int(summary.get("broken", 0) or 0)
     run_dir_href = os.path.relpath(run_dir, output_path)
@@ -155,6 +168,7 @@ def _report_entry(output_path: Path, run_dir: Path, report_data: dict[str, Any])
         "run_dir": run_dir_href,
         "entry_href": f"{run_dir_href}/index.html",
         "executive_href": f"{run_dir_href}/executive.html",
+        "compare_href": f"{run_dir_href}/compare.html",
         "tests_href": f"{run_dir_href}/explore.html",
         "share_href": f"{run_dir_href}/share.html",
         "total": int(summary.get("total", 0) or 0),
@@ -174,7 +188,23 @@ def _report_entry(output_path: Path, run_dir: Path, report_data: dict[str, Any])
         "quality_status": quality.get("status", "not_configured") if quality.get("configured") else "not_configured",
         "quality_configured": bool(quality.get("configured")),
         "quality_message": quality.get("message", ""),
+        "quality_score": quality_score.get("score"),
+        "quality_grade": quality_score.get("grade", "n/a"),
+        "quality_score_status": quality_score.get("status", "unknown"),
+        "risk_level": risk_signal.get("level", "low"),
+        "risk_summary": risk_signal.get("summary", ""),
         "risk_count": len(report_data.get("risk_signals", []) or []),
+        "new_failure_count": int(transition_counts.get("new", 0) or 0),
+        "known_failure_count": int(transition_counts.get("known", 0) or 0),
+        "resolved_failure_count": int(transition_counts.get("resolved", 0) or 0),
+        "compare_previous_run_id": compare.get("previous_run_id", ""),
+        "compare_metrics": compare.get("metrics", []),
+        "stability_status": stability.get("status", "not_available"),
+        "stability_score": stability.get("score"),
+        "recovery_status": recovery.get("status", "not_available"),
+        "mean_recovery_ms": recovery.get("mean_recovery_ms"),
+        "resource_status": resource.get("status", "not_available"),
+        "resource_efficiency_percent": resource.get("efficiency_percent"),
         "artifact_count": int(signals.get("artifact_count", 0) or 0),
         "test_retry_count": int(signals.get("test_retry_count", 0) or 0),
         "action_retry_count": int(signals.get("action_retry_count", 0) or 0),
@@ -202,9 +232,15 @@ def _portfolio_summary(reports: list[dict[str, Any]]) -> dict[str, Any]:
         "latest_run_id": latest.get("run_id", ""),
         "latest_generated": latest.get("generated_display", ""),
         "latest_pass_rate": latest.get("pass_rate", 0),
+        "latest_quality_score": latest.get("quality_score"),
+        "latest_risk_level": latest.get("risk_level", "low"),
         "latest_status": latest.get("status", "unknown"),
         "failing_runs": len(failing_runs),
         "flaky_runs": len(flaky_runs),
+        "high_risk_runs": sum(1 for report in reports if report.get("risk_level") == "high"),
+        "medium_risk_runs": sum(1 for report in reports if report.get("risk_level") == "medium"),
+        "new_failures": sum(int(report.get("new_failure_count", 0) or 0) for report in reports),
+        "resolved_failures": sum(int(report.get("resolved_failure_count", 0) or 0) for report in reports),
         "total_tests": sum(int(report.get("total", 0) or 0) for report in reports),
         "total_failed": sum(int(report.get("failed_total", 0) or 0) for report in reports),
         "total_flaky": sum(int(report.get("flaky", 0) or 0) for report in reports),
@@ -218,6 +254,7 @@ def _filter_options(reports: list[dict[str, Any]]) -> dict[str, list[str]]:
         "framework": _sorted_options(report.get("framework") for report in reports),
         "status": _sorted_options(report.get("status") for report in reports),
         "quality_status": _sorted_options(report.get("quality_status") for report in reports),
+        "risk_level": _sorted_options(report.get("risk_level") for report in reports),
     }
 
 
@@ -241,6 +278,10 @@ def _render_dashboard_page(data: dict[str, Any]) -> str:
 <section class="grid two">
   <article><h2>Pass Rate Trend</h2><div id="portfolio-pass-trend"></div></article>
   <article><h2>Run Outcomes</h2><div id="portfolio-status-chart"></div></article>
+</section>
+<section class="grid two">
+  <article><h2>Quality Score Trend</h2><div id="portfolio-quality-chart"></div></article>
+  <article><h2>Risk Levels</h2><div id="portfolio-risk-chart"></div></article>
 </section>
 <section class="grid two">
   <article><h2>Failure Categories</h2><div id="portfolio-failure-chart"></div></article>
@@ -303,6 +344,9 @@ def _portfolio_toolbar(scope: str) -> str:
   <label>Quality
     <select data-portfolio-filter="quality_status"><option value="">All</option></select>
   </label>
+  <label>Risk
+    <select data-portfolio-filter="risk_level"><option value="">All</option></select>
+  </label>
   <button type="button" data-portfolio-reset>Reset</button>
 </section>
 """
@@ -330,10 +374,10 @@ def _page(title: str, body: str, page_kind: str) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{_e(title)}</title>
   <style>
-    :root {{ color-scheme:light; --ink:#172033; --muted:#5b6472; --line:#dbe3ec; --panel:#fff; --bg:#f5f7fa; --accent:#0f766e; --accent-2:#2563eb; --danger:#b91c1c; --warn:#b45309; --ok:#047857; }}
+    :root {{ color-scheme:light; --ink:#172033; --muted:#5b6472; --line:#dbe3ec; --panel:#fff; --bg:#f5f7fa; --accent:#0f766e; --accent-2:#2563eb; --danger:#b91c1c; --warn:#b45309; --ok:#047857; --shadow:0 12px 30px rgba(15,23,42,.08); }}
     * {{ box-sizing:border-box; }}
-    body {{ margin:0; font-family:Arial,sans-serif; color:var(--ink); background:var(--bg); overflow-x:hidden; }}
-    .hero {{ background:#102033; color:#fff; padding:30px clamp(18px,4vw,42px); display:flex; justify-content:space-between; gap:18px; align-items:flex-start; }}
+    body {{ margin:0; font-family:Arial,sans-serif; color:var(--ink); background:linear-gradient(180deg,#eef3f8 0,#f7f9fb 260px,#f5f7fa 100%); overflow-x:hidden; }}
+    .hero {{ background:linear-gradient(135deg,#0d1b2a,#142f43); color:#fff; padding:30px clamp(18px,4vw,42px); display:flex; justify-content:space-between; gap:18px; align-items:flex-start; border-bottom:1px solid rgba(255,255,255,.16); }}
     .hero.compact {{ padding:22px clamp(18px,4vw,42px); }}
     h1 {{ margin:0 0 8px; font-size:clamp(24px,3vw,34px); letter-spacing:0; overflow-wrap:anywhere; }}
     h2 {{ margin:0 0 14px; font-size:18px; letter-spacing:0; }}
@@ -341,11 +385,11 @@ def _page(title: str, body: str, page_kind: str) -> str:
     p {{ margin:0; overflow-wrap:anywhere; }}
     a {{ color:#0f5b99; }}
     .eyebrow {{ color:#b7c7d7; font-size:12px; text-transform:uppercase; letter-spacing:0; margin-bottom:7px; }}
-    .app-nav {{ position:sticky; top:0; z-index:3; display:flex; gap:6px; flex-wrap:wrap; padding:12px clamp(18px,4vw,42px); background:#fff; border-bottom:1px solid var(--line); box-shadow:0 1px 0 rgba(15,23,42,.04); }}
-    .app-nav a {{ color:#0f5b99; font-weight:700; text-decoration:none; padding:8px 10px; border-radius:8px; }}
-    .app-nav a.active {{ background:#e7f3ff; color:#0b4d83; }}
+    .app-nav {{ position:sticky; top:0; z-index:3; display:flex; gap:6px; flex-wrap:nowrap; overflow-x:auto; padding:12px clamp(18px,4vw,42px); background:rgba(255,255,255,.96); border-bottom:1px solid var(--line); box-shadow:0 1px 0 rgba(15,23,42,.04); scrollbar-gutter:stable; }}
+    .app-nav a {{ color:#0f5b99; font-weight:700; text-decoration:none; padding:8px 10px; border-radius:8px; white-space:nowrap; }}
+    .app-nav a.active {{ background:#e7f3ff; color:#0b4d83; box-shadow:inset 0 0 0 1px #bfdbfe; }}
     section {{ margin:22px clamp(18px,4vw,42px); max-width:100%; }}
-    article {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; min-width:0; max-width:100%; overflow:hidden; }}
+    article {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; min-width:0; max-width:100%; overflow:hidden; box-shadow:var(--shadow); }}
     .toolbar {{ display:flex; flex-wrap:wrap; gap:12px; align-items:end; padding:14px; background:#fff; border:1px solid var(--line); border-radius:8px; }}
     .toolbar label,.result-strip label {{ display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--muted); font-weight:700; min-width:150px; }}
     .search-box {{ flex:1 1 300px; }}
@@ -353,7 +397,7 @@ def _page(title: str, body: str, page_kind: str) -> str:
     button,.button {{ font-weight:700; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; }}
     .button.inverse {{ background:#fff; color:#102033; }}
     .metrics {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; }}
-    .metric {{ background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; min-width:0; }}
+    .metric {{ background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; min-width:0; box-shadow:0 4px 18px rgba(15,23,42,.05); }}
     .metric strong {{ display:block; font-size:26px; margin-bottom:4px; overflow-wrap:anywhere; }}
     .grid {{ display:grid; gap:16px; }}
     .grid.two {{ grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr)); }}
@@ -362,11 +406,17 @@ def _page(title: str, body: str, page_kind: str) -> str:
     .hbar-label {{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }}
     .hbar-track {{ height:10px; background:#e5e7eb; border-radius:999px; overflow:hidden; }}
     .hbar-fill {{ display:block; height:100%; background:var(--accent); }}
-    .status {{ display:inline-block; padding:5px 9px; border-radius:999px; font-size:12px; font-weight:700; text-transform:uppercase; white-space:nowrap; }}
+    .status {{ display:inline-block; padding:5px 9px; border-radius:999px; font-size:12px; font-weight:700; text-transform:uppercase; white-space:nowrap; line-height:1; }}
     .passed {{ color:#047857; background:#dff7ed; }}
     .failed,.broken,.failed_broken {{ color:#b91c1c; background:#fee2e2; }}
     .skipped,.warning {{ color:#92400e; background:#fef3c7; }}
     .unknown,.not_configured {{ color:#4b5563; background:#e5e7eb; }}
+    .low {{ color:#047857; background:#dff7ed; }}
+    .medium {{ color:#92400e; background:#fef3c7; }}
+    .high {{ color:#b91c1c; background:#fee2e2; }}
+    .score-line {{ display:grid; gap:6px; min-width:0; }}
+    .score-line strong {{ font-size:28px; }}
+    .signal-row {{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }}
     .report-card-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(330px,100%),1fr)); gap:14px; }}
     .report-card {{ display:grid; gap:12px; align-content:start; }}
     .card-head {{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }}
@@ -378,9 +428,9 @@ def _page(title: str, body: str, page_kind: str) -> str:
     .attention-item {{ border-left:4px solid var(--danger); background:#fff7f7; border-radius:8px; padding:10px 12px; }}
     .tag-cloud {{ display:flex; flex-wrap:wrap; gap:8px; }}
     .tag {{ background:#edf2f7; color:#263345; border-radius:999px; padding:5px 8px; font-size:12px; overflow-wrap:anywhere; }}
-    .table-wrap {{ width:100%; overflow-x:auto; border-radius:8px; }}
-    table {{ border-collapse:collapse; width:100%; min-width:820px; background:#fff; border:1px solid var(--line); }}
-    th,td {{ border-bottom:1px solid #e9edf2; padding:10px; text-align:left; vertical-align:top; overflow-wrap:anywhere; }}
+    .table-wrap {{ width:100%; max-width:100%; overflow-x:auto; border-radius:8px; }}
+    table {{ border-collapse:collapse; width:100%; min-width:820px; background:#fff; border:1px solid var(--line); table-layout:fixed; }}
+    th,td {{ border-bottom:1px solid #e9edf2; padding:10px; text-align:left; vertical-align:top; overflow-wrap:anywhere; word-break:break-word; min-width:0; }}
     th {{ background:#eef2f6; color:#263345; }}
     .empty-state {{ color:var(--muted); padding:18px; background:#fff; border:1px dashed var(--line); border-radius:8px; }}
     svg {{ width:100%; max-width:100%; height:auto; }}
@@ -393,7 +443,7 @@ def _page(title: str, body: str, page_kind: str) -> str:
   </style>
   <script>{_portfolio_script(page_kind)}</script>
 </head>
-<body>
+<body data-visual-system="enterprise-redesign">
 {body}
 </body>
 </html>
@@ -470,6 +520,8 @@ function renderDashboard() {{
   if (metrics) metrics.innerHTML = [
     metric('Reports', items.length),
     metric('Latest Pass Rate', latest.pass_rate !== undefined ? `${{latest.pass_rate}}%` : '-'),
+    metric('Latest Quality', qualityScore(latest)),
+    metric('Risk', latest.risk_level || '-'),
     metric('Failing Runs', items.filter((item) => item.failed_total).length),
     metric('Flaky Tests', sum(items, 'flaky')),
     metric('Total Tests', sum(items, 'total')),
@@ -477,6 +529,8 @@ function renderDashboard() {{
   ].join('');
   setHtml('portfolio-pass-trend', trendChart(items));
   setHtml('portfolio-status-chart', barChart(countBy(items, 'status'), 'No runs match the filters.'));
+  setHtml('portfolio-quality-chart', qualityTrend(items));
+  setHtml('portfolio-risk-chart', barChart(countBy(items, 'risk_level'), 'No risk signal data.'));
   setHtml('portfolio-failure-chart', barChart(mergeCounters(items, 'failure_categories'), 'No failures in the filtered runs.'));
   setHtml('portfolio-framework-chart', frameworkHealth(items));
   setHtml('portfolio-attention', attentionList(items));
@@ -496,9 +550,9 @@ function frameworkHealth(items) {{
   return barChart(Object.fromEntries(rows.map(([name, passRate]) => [name, passRate])), 'No framework data.') + rows.map(([name, passRate, value]) => `<p class="muted">${{name}}: ${{value.runs}} runs, ${{value.tests}} tests, ${{value.failed}} failed, avg ${{passRate}}%</p>`).join('');
 }}
 function attentionList(items) {{
-  const attention = items.filter((item) => item.failed_total || item.flaky || item.quality_status === 'failed').slice(0, 8);
+  const attention = items.filter((item) => item.failed_total || item.flaky || item.quality_status === 'failed' || item.risk_level === 'high').slice(0, 8);
   if (!attention.length) return '<p class="empty-state">No failing, flaky, or failed-quality runs in the filtered set.</p>';
-  return `<div class="attention-list">${{attention.map((item) => `<div class="attention-item"><strong><a href="${{item.entry_href}}">${{item.run_id}}</a></strong><br><span class="muted">${{item.generated_display}} · ${{item.framework || '-'}}</span><p>${{item.failed_total}} failed · ${{item.flaky}} flaky · ${{item.pass_rate}}% pass rate</p></div>`).join('')}}</div>`;
+  return `<div class="attention-list">${{attention.map((item) => `<div class="attention-item"><strong><a href="${{item.entry_href}}">${{item.run_id}}</a></strong><br><span class="muted">${{item.generated_display}} · ${{item.framework || '-'}}</span><p>${{item.failed_total}} failed · ${{item.flaky}} flaky · ${{item.pass_rate}}% pass rate · ${{item.risk_level || 'low'}} risk</p></div>`).join('')}}</div>`;
 }}
 function coverageCloud(items) {{
   const tags = new Map();
@@ -520,17 +574,30 @@ function renderGallery() {{
   const view = document.getElementById('gallery-view')?.value || 'cards';
   if (view === 'table') {{
     root.className = 'table-wrap';
-    root.innerHTML = `<table><thead><tr><th>Status</th><th>Run</th><th>Framework</th><th>Generated</th><th>Tests</th><th>Pass Rate</th><th>Signals</th><th>Open</th></tr></thead><tbody>${{items.map(reportTableRow).join('') || '<tr><td colspan="8">No reports match the filters.</td></tr>'}}</tbody></table>`;
+    root.innerHTML = `<table><thead><tr><th>Status</th><th>Run</th><th>Framework</th><th>Generated</th><th>Tests</th><th>Pass Rate</th><th>Quality</th><th>Signals</th><th>Open</th></tr></thead><tbody>${{items.map(reportTableRow).join('') || '<tr><td colspan="9">No reports match the filters.</td></tr>'}}</tbody></table>`;
     return;
   }}
   root.className = 'report-card-grid';
   root.innerHTML = items.map(reportCard).join('') || '<p class="empty-state">No reports match the filters.</p>';
 }}
 function reportCard(item) {{
-  return `<article class="report-card"><div class="card-head"><div><span class="status ${{statusClass(item.status)}}">${{item.status}}</span><h3><a href="${{item.entry_href}}">${{item.run_id || 'run'}}</a></h3><p class="muted">${{item.generated_display}} · ${{item.framework || '-'}}</p></div><strong>${{item.pass_rate}}%</strong></div><div class="mini-metrics"><span><strong>${{item.total}}</strong><br>Tests</span><span><strong>${{item.failed_total}}</strong><br>Failed</span><span><strong>${{item.flaky}}</strong><br>Flaky</span><span><strong>${{item.duration_display}}</strong><br>Duration</span></div><p class="muted">${{item.project_name || '-'}} · ${{(item.profiles || []).join(', ') || (item.environments || []).join(', ') || '-'}}</p><div class="card-actions"><a class="button" href="${{item.entry_href}}">Dashboard</a><a class="button" href="${{item.executive_href}}">Executive</a><a class="button" href="${{item.tests_href}}">Tests</a><a class="button" href="${{item.share_href}}">Share</a></div></article>`;
+  return `<article class="report-card"><div class="card-head"><div><span class="status ${{statusClass(item.status)}}">${{item.status}}</span><h3><a href="${{item.entry_href}}">${{item.run_id || 'run'}}</a></h3><p class="muted">${{item.generated_display}} · ${{item.framework || '-'}}</p></div><div class="score-line"><strong>${{qualityScore(item)}}</strong><span class="status ${{statusClass(item.risk_level)}}">${{item.risk_level || 'low'}}</span></div></div><div class="mini-metrics"><span><strong>${{item.total}}</strong><br>Tests</span><span><strong>${{item.failed_total}}</strong><br>Failed</span><span><strong>${{item.flaky}}</strong><br>Flaky</span><span><strong>${{item.duration_display}}</strong><br>Duration</span></div><p class="muted">${{item.project_name || '-'}} · ${{(item.profiles || []).join(', ') || (item.environments || []).join(', ') || '-'}}</p><p class="muted">New ${{item.new_failure_count || 0}} · Known ${{item.known_failure_count || 0}} · Resolved ${{item.resolved_failure_count || 0}} · Pass delta ${{deltaLabel(item.pass_rate_delta, '%')}}</p><div class="card-actions"><a class="button" href="${{item.entry_href}}">Dashboard</a><a class="button" href="${{item.executive_href}}">Executive</a><a class="button" href="${{item.compare_href}}">Compare</a><a class="button" href="${{item.tests_href}}">Tests</a><a class="button" href="${{item.share_href}}">Share</a></div></article>`;
 }}
 function reportTableRow(item) {{
-  return `<tr><td><span class="status ${{statusClass(item.status)}}">${{item.status}}</span></td><td>${{item.run_id}}</td><td>${{item.framework || '-'}}</td><td>${{item.generated_display}}</td><td>${{item.total}}</td><td>${{item.pass_rate}}%</td><td>${{item.failed_total}} failed · ${{item.flaky}} flaky · ${{item.artifact_count}} artifacts</td><td><a href="${{item.entry_href}}">Open</a></td></tr>`;
+  return `<tr><td><span class="status ${{statusClass(item.status)}}">${{item.status}}</span></td><td>${{item.run_id}}</td><td>${{item.framework || '-'}}</td><td>${{item.generated_display}}</td><td>${{item.total}}</td><td>${{item.pass_rate}}%</td><td>${{qualityScore(item)}} · <span class="status ${{statusClass(item.risk_level)}}">${{item.risk_level || 'low'}}</span></td><td>${{item.failed_total}} failed · ${{item.flaky}} flaky · ${{item.new_failure_count || 0}} new · ${{item.artifact_count}} artifacts</td><td><a href="${{item.entry_href}}">Open</a> · <a href="${{item.compare_href}}">Compare</a></td></tr>`;
+}}
+function qualityScore(item) {{
+  return item && item.quality_score !== null && item.quality_score !== undefined ? `${{item.quality_score}}` : 'N/A';
+}}
+function deltaLabel(value, suffix = '') {{
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '-';
+  const number = Number(value);
+  const sign = number > 0 ? '+' : '';
+  return `${{sign}}${{number}}${{suffix}}`;
+}}
+function qualityTrend(items) {{
+  const values = Object.fromEntries(items.slice(0, 12).map((item) => [item.run_id || item.generated_display, Number(item.quality_score || 0)]));
+  return barChart(values, 'No quality score data.');
 }}
 function setHtml(id, value) {{ const node = document.getElementById(id); if (node) node.innerHTML = value; }}
 function formatDuration(ms) {{
@@ -638,6 +705,14 @@ def _search_text(entry: dict[str, Any]) -> str:
         "framework",
         "status",
         "quality_status",
+        "quality_grade",
+        "quality_score_status",
+        "risk_level",
+        "risk_summary",
+        "compare_previous_run_id",
+        "stability_status",
+        "recovery_status",
+        "resource_status",
         "generated_display",
         "profiles",
         "environments",

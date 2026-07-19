@@ -130,7 +130,7 @@ report = RunReport(
 - `flaky.html`: flaky/slow/failing analysis.
 - `matrix.html`: profile/browser/device/environment comparison.
 - `history.html`: history/trend من `reports/history`.
-- `report-data.json`: JSON-safe sidecar للـ dashboard insights, test index, chart aggregates, clusters, quality gates, failure transitions, run comparison, matrix/history, timeline counts, sharing metadata, and artifact index.
+- `report-data.json`: JSON-safe sidecar للـ dashboard insights, test index, chart aggregates, clusters, quality gates, enterprise quality score/risk/stability/recovery signals, failure transitions, run comparison, matrix/history, timeline counts, sharing metadata, and artifact index.
 - `data/run-report.json`: neutral JSON للـ run الحالي.
 
 `finalize_allure_reporting(...)` يستخدم `generate_reporting_product(...)` داخل retained portfolio root. بدلاً من
@@ -353,6 +353,7 @@ It includes:
 - quality gate evaluation
 - new, known, and resolved failure transitions from the latest previous history run
 - run comparison deltas for totals, pass/fail/skip/flaky, duration, retries, healing events, and artifacts
+- enterprise insight data: quality score components, default informational gate status, risk signal thresholds, stability window, mean recovery time from retained history, and resource-efficiency when worker count and wall-clock duration are available
 - risk signals and environment/execution coverage dimensions when metadata is available
 - artifact index with bundled hrefs after local artifact copying
 - sharing/export metadata with safe-share redaction status and export paths
@@ -385,18 +386,33 @@ failures that now pass or are absent are listed as resolved.
 ### Enterprise static report experience
 
 The product report remains a portable static artifact: `index.html` works from local files or CI artifacts without a
-server or external CDN. The shared shell links Dashboard, Executive, Quality, Tests, Timeline, Flaky, Matrix, History, and Share consistently.
+server or external CDN. The shared shell links Dashboard, Executive, Quality, Compare, Tests, Timeline, Flaky, Matrix, History, and Share consistently.
 Pages include self-contained CSS/JavaScript for search, filtering, sorting, charts, and matrix view toggles.
 
 At the finalizer level, the report root is also a portable portfolio artifact. The root Dashboard summarizes every
-retained report with search/filter controls, pass-rate trend, run outcome chart, failure category chart, framework
-health, attention list, and metadata coverage. The Reports page renders every retained run as selectable cards or a
-table with direct links to that run's dashboard, executive page, tests page, and share page.
+retained report with search/filter controls, pass-rate trend, quality score trend, risk levels, run outcome chart,
+failure category chart, framework health, attention list, and metadata coverage. The Reports page renders every
+retained run as selectable cards or a table with direct links to that run's dashboard, executive page, compare page,
+tests page, and share page.
 
 The Dashboard includes status distribution, duration distribution, slowest tests, failure category, retry signal,
-artifact type, and history trend charts. The Tests Explore page uses the sidecar test index for global search,
-filters, sorting, table/card views, and filtered chart summaries. Matrix pages use overflow-safe full-width sections
-with heatmap cards plus tables so long dimension values do not break the layout.
+artifact type, quality score, risk signal, recovery, and history trend charts. The Compare page shows current vs
+previous deltas, new/known/resolved failure movement, stability, and resource-efficiency. The Tests Explore page uses
+the sidecar test index for global search, filters, sorting, table/card views, and filtered chart summaries. Matrix
+pages use overflow-safe full-width sections with heatmap cards plus tables so long dimension values do not break the
+layout.
+
+`ReportInsightConfig` controls optional enterprise defaults without requiring frameworks to add extra metadata:
+
+- `slow_test_threshold_ms`: default `30000`.
+- `risk_thresholds`: medium/high thresholds for failures, flaky tests, new failures, and retry signals.
+- `quality_weights`: explainable penalties applied to the pass-rate baseline.
+- default informational gates: pass rate, failed/broken, skipped, flaky, test retries, and action retries.
+- `stability_history_window`: retained-history runs used for stability and recovery calculations.
+- `worker_count_metadata_keys`: neutral run metadata names used only when resource-efficiency can be calculated.
+
+When history or worker data is missing, the report keeps the data shape and marks the signal as unavailable or
+insufficient instead of inventing values.
 
 The Executive page summarizes release readiness, top blockers, trend, quality signals, flaky/retry state, and
 environment coverage for release stakeholders. The Share page provides stakeholder-oriented links, safe-sharing

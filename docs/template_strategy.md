@@ -42,7 +42,7 @@ Template repositories must pin `automation-core` intentionally to explicit tags,
 Preferred Git dependency format:
 
 ```text
-automation-core @ git+https://github.com/iisleem/automation-core.git@v0.8.0
+automation-core @ git+https://github.com/iisleem/automation-core.git@v0.10.0
 ```
 
 When a framework change depends on a new core capability, land and tag the core change first, then update the framework dependency in a focused PR.

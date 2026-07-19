@@ -25,6 +25,7 @@ from automation_core.reporting.generator import (
     read_allure_results,
     summarize_results,
 )
+from automation_core.reporting.insights import QualityScoreWeights, ReportInsightConfig, RiskThresholds
 from automation_core.reporting.models import Artifact, RetryAttempt, RunReport, StepRecord, TestCaseReport
 from automation_core.reporting.opener import open_report
 from automation_core.reporting.portfolio import (
@@ -66,6 +67,8 @@ __all__ = [
     "QualityGateConfig",
     "QualityGateEvaluation",
     "QualityGateResult",
+    "QualityScoreWeights",
+    "ReportInsightConfig",
     "apply_enrichers",
     "attach_file",
     "attach_json",
@@ -97,6 +100,7 @@ __all__ = [
     "archive_legacy_report_if_needed",
     "collect_report_runs",
     "read_allure_results",
+    "RiskThresholds",
     "run_report_from_allure_results",
     "step",
     "summarize_run",

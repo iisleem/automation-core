@@ -8,6 +8,7 @@ from typing import Any, Literal, cast
 from automation_core.reporting.adapters import ReportEnricher, TestMetadata, run_report_from_allure_results
 from automation_core.reporting.allure_cli import get_allure_cli, get_or_install_allure_cli
 from automation_core.reporting.generator import generate_html_report
+from automation_core.reporting.insights import ReportInsightConfig
 from automation_core.reporting.opener import open_report as open_report_path
 from automation_core.reporting.portfolio import generate_report_portfolio, prepare_timestamped_report_dir
 from automation_core.reporting.product import generate_reporting_product
@@ -101,6 +102,7 @@ def finalize_allure_reporting(
     test_metadata: TestMetadata | None = None,
     enrichers: list[ReportEnricher] | None = None,
     matrix_dimensions: list[str] | None = None,
+    insight_config: ReportInsightConfig | dict[str, Any] | None = None,
     install_allure_cli: bool = False,
     bundle_artifacts: bool = True,
     update_history_file: bool = True,
@@ -138,6 +140,7 @@ def finalize_allure_reporting(
             test_metadata=test_metadata,
             enrichers=enrichers,
             matrix_dimensions=matrix_dimensions,
+            insight_config=insight_config,
             bundle_artifacts=bundle_artifacts,
             update_history_file=update_history_file,
         )
@@ -181,6 +184,7 @@ def _generate_core_report(
     test_metadata: TestMetadata | None,
     enrichers: list[ReportEnricher] | None,
     matrix_dimensions: list[str] | None,
+    insight_config: ReportInsightConfig | dict[str, Any] | None,
     bundle_artifacts: bool,
     update_history_file: bool,
 ) -> None:
@@ -208,6 +212,7 @@ def _generate_core_report(
             report,
             report_output_path,
             history_dir=Path(history_dir) if history_dir is not None else None,
+            insight_config=insight_config,
             bundle_artifacts=bundle_artifacts,
             update_history_file=update_history_file,
         )

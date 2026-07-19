@@ -17,7 +17,7 @@ See [Template Repository Strategy](docs/template_strategy.md) for the product-fa
 From GitHub after the repository is published:
 
 ```bash
-pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.8.0"
+pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.10.0"
 ```
 
 For local development:
@@ -38,6 +38,11 @@ pytest
 - Data, file, structured file, text, URL, date/time, secrets, cleanup, soft assertion, security, and response timing helpers.
 
 ## Version Notes
+
+`0.10.0` redesigns the static enterprise report visual system across retained portfolio pages and
+single-run reports. It adds a Compare page, quality score, risk signal, default informational gate
+status, stability, recovery, resource-efficiency, and chart-ready comparison data while preserving
+existing `report-data.json` keys.
 
 `0.9.1` improves small-screen report readability by turning wide run-detail tables into labeled
 mobile cards. `0.9.0` adds retained timestamped report runs and a portfolio dashboard. The shared
@@ -169,14 +174,21 @@ By default, local artifact files are bundled under the generated report's `artif
 
 Each timestamped run report writes `report-data.json` next to that run's `index.html`. It contains JSON-safe run
 summary data, test index records with detail links, chart-ready aggregates, failure clusters, flaky breakdown,
-matrix rows, timeline counts/events, history comparison points, risk signals, coverage metadata, and an artifact
-index with bundled hrefs. Framework validation can read this file instead of scraping HTML.
+matrix rows, timeline counts/events, history comparison points, risk signals, quality score, stability/recovery,
+resource-efficiency when worker metadata is available, coverage metadata, and an artifact index with bundled hrefs.
+Framework validation can read this file instead of scraping HTML.
 
 Quality gates are opt-in and domain-neutral. Callers can pass `quality_gates=QualityGateConfig(...)` to
 `generate_reporting_product(...)` or `build_report_data(...)` to evaluate thresholds such as minimum pass rate,
 maximum failed/broken tests, skipped tests, flaky tests, retries, duration, and failure categories. When history is
 available, the sidecar and `quality.html` classify current failures as new or known and list resolved failures from
 the previous run.
+
+Enterprise insight defaults are informational and conservative. The report derives quality score, risk level,
+default gate status, retry-recovered stability, mean recovery time, and run comparison from neutral run/test/history
+data. Use `ReportInsightConfig(...)` with `generate_reporting_product(...)`, `build_report_data(...)`, or
+`finalize_allure_reporting(...)` to tune slow-test thresholds, risk thresholds, default informational gates, quality
+score weights, stability window, or worker-count metadata keys.
 
 Generated reports are safe-sharing enabled by default. Values under sensitive keys or names such as `token`,
 `secret`, `password`, `authorization`, `cookie`, `api_key`, `bearer`, and `session` are replaced with `[redacted]`
@@ -188,6 +200,7 @@ The report also writes:
 
 - `executive.html`: management-ready readiness, blockers, trend, quality, retry, and coverage summary.
 - `quality.html`: quality gate status, new/known/resolved failures, and run comparison.
+- `compare.html`: current-vs-previous run deltas, failure movement, stability, recovery, and resource-efficiency.
 - `share.html`: export center with stakeholder views and links to the generated artifacts.
 - `print-summary.html`: printable HTML summary suitable for browser PDF printing.
 - `exports/test-index.csv`: flat test index for spreadsheet workflows.
