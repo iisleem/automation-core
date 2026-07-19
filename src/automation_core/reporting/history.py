@@ -25,6 +25,7 @@ def history_entry_from_report(report: RunReport) -> dict[str, Any]:
         **summary,
         "failure_categories": failure_categories(report),
         "failed_tests": [_failed_test_entry(test) for test in report.tests if test.status in {"failed", "broken"}],
+        "test_statuses": [_test_status_entry(test) for test in report.tests],
         "flaky_tests": flaky_analysis(report),
         "slow_tests": [
             {
@@ -104,6 +105,16 @@ def _failed_test_entry(test: TestCaseReport) -> dict[str, Any]:
         "status": test.status,
         "failure_category": classify_failure(test),
         "failure_message": test.failure_message[:300],
+    }
+
+
+def _test_status_entry(test: TestCaseReport) -> dict[str, Any]:
+    return {
+        "identity": _test_identity(test),
+        "test_id": test.id,
+        "name": test.name,
+        "full_name": test.full_name,
+        "status": test.status,
     }
 
 

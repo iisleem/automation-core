@@ -21,6 +21,7 @@ from automation_core.reporting.analysis import (
 )
 from automation_core.reporting.events import ReportingEvent, build_timeline_events
 from automation_core.reporting.history import load_history, trend_points, update_history
+from automation_core.reporting.insights import ReportInsightConfig
 from automation_core.reporting.models import Artifact, RunReport, StepRecord, TestCaseReport, to_jsonable
 from automation_core.reporting.quality import QualityGate, QualityGateConfig
 from automation_core.reporting.redaction import is_sensitive_name, redact_report, redact_text
@@ -47,6 +48,7 @@ def generate_reporting_product(
     | list[QualityGate | dict[str, Any]]
     | tuple[QualityGate | dict[str, Any], ...]
     | None = None,
+    insight_config: ReportInsightConfig | dict[str, Any] | None = None,
 ) -> Path:
     output_path = Path(output_dir)
     tests_dir = output_path / "tests"
@@ -70,6 +72,7 @@ def generate_reporting_product(
         timeline_events=timeline,
         details=details,
         quality_gates=quality_gates,
+        insight_config=insight_config,
         safe_share=safe_share,
         redaction=redaction,
     )
@@ -78,6 +81,7 @@ def generate_reporting_product(
     (output_path / "report-data.json").write_text(json.dumps(report_data, indent=2), encoding="utf-8")
     _write_share_exports(output_report, report_data, output_path)
     (output_path / "quality.html").write_text(_render_quality_page(output_report, report_data), encoding="utf-8")
+    (output_path / "compare.html").write_text(_render_compare_page(output_report, report_data), encoding="utf-8")
     (output_path / "executive.html").write_text(
         _render_executive_page(output_report, history_entries, report_data), encoding="utf-8"
     )
@@ -174,8 +178,15 @@ def _write_share_exports(report: RunReport, report_data: dict[str, Any], output_
         "history": report_data["history"],
         "artifacts": report_data["artifacts"],
         "quality": report_data["quality"],
+        "quality_score": report_data["quality_score"],
+        "risk_signal": report_data["risk_signal"],
+        "default_gate_status": report_data["default_gate_status"],
         "failure_transitions": report_data["failure_transitions"],
         "run_comparison": report_data["run_comparison"],
+        "compare": report_data["compare"],
+        "stability": report_data["stability"],
+        "recovery": report_data["recovery"],
+        "resource_efficiency": report_data["resource_efficiency"],
         "sharing": report_data["sharing"],
     }
     (exports_dir / "report-bundle.json").write_text(json.dumps(bundle, indent=2), encoding="utf-8")
@@ -188,6 +199,7 @@ def _write_share_exports(report: RunReport, report_data: dict[str, Any], output_
             "index.html",
             "executive.html",
             "quality.html",
+            "compare.html",
             "share.html",
             "explore.html",
             "timeline.html",
@@ -587,6 +599,20 @@ def _render_dashboard(
         }
   </article>
 </section>
+<section class="grid three">
+  <article class="insight-card">
+    <h2>Quality Score</h2>
+    {_quality_score_card(report_data["quality_score"])}
+  </article>
+  <article class="insight-card">
+    <h2>Risk Signal</h2>
+    {_risk_signal_card(report_data["risk_signal"])}
+  </article>
+  <article class="insight-card">
+    <h2>Recovery</h2>
+    {_recovery_card(report_data["recovery"])}
+  </article>
+</section>
 <section class="grid three chart-grid">
   <article class="chart-card">
     <h2>Status Distribution</h2>
@@ -708,6 +734,8 @@ def _render_quality_page(report: RunReport, report_data: dict[str, Any]) -> str:
 {_nav("quality")}
 <section class="metrics">
   {_metric("Gate Status", quality.get("status", "passed"))}
+  {_metric("Quality Score", _score_value(report_data["quality_score"]))}
+  {_metric("Risk", report_data["risk_signal"].get("level", "low"))}
   {_metric("Configured", "yes" if quality.get("configured") else "no")}
   {_metric("New Failures", transitions["counts"]["new"])}
   {_metric("Known Failures", transitions["counts"]["known"])}
@@ -722,6 +750,13 @@ def _render_quality_page(report: RunReport, report_data: dict[str, Any]) -> str:
   <article>
     <h2>Gate Results</h2>
     {_quality_gate_table(quality)}
+  </article>
+</section>
+<section>
+  <article>
+    <h2>Default Gate Status</h2>
+    <p class="muted">Default gates are informational unless a framework or CI workflow enforces them.</p>
+    {_quality_gate_table(report_data["default_gate_status"])}
   </article>
 </section>
 <section class="grid two">
@@ -740,18 +775,75 @@ def _render_quality_page(report: RunReport, report_data: dict[str, Any]) -> str:
   </label>
   {_select_filter("quality-kind", "Kind", ["new", "known", "resolved"], data_filter="kind")}
 </section>
-<section class="grid three" data-filter-root="quality-failures">
+<section data-filter-root="quality-failures">
   <article>
-    <h2>New Failures</h2>
-    {_failure_transition_table(transitions["new_failures"], kind="new")}
+    <h2>Failure Movement</h2>
+    {_failure_transition_table(transitions)}
+  </article>
+</section>
+""",
+    )
+
+
+def _render_compare_page(report: RunReport, report_data: dict[str, Any]) -> str:
+    compare = report_data["compare"]
+    transitions = report_data["failure_transitions"]
+    return _page(
+        "Compare Runs",
+        f"""
+<header class="hero compact">
+  <div>
+    <p class="eyebrow">{_e(report.run_id)}</p>
+    <h1>Compare Runs</h1>
+    <p>Current run compared with the latest retained previous run where history is available.</p>
+  </div>
+  <span class="status {_e(report_data["risk_signal"].get("level", "low"))}">{_e(report_data["risk_signal"].get("level", "low"))}</span>
+</header>
+{_nav("compare")}
+<section class="metrics">
+  {_metric_with_note("Previous Run", _short_run_id(compare.get("previous_run_id") or ""), compare.get("previous_run_id") or "-")}
+  {_metric("Pass Rate Delta", _compare_delta(compare, "pass_rate"))}
+  {_metric("Failed Delta", _compare_delta(compare, "failed_broken"))}
+  {_metric("Retry Delta", _retry_delta(compare))}
+  {_metric("New Failures", transitions["counts"]["new"])}
+  {_metric("Resolved", transitions["counts"]["resolved"])}
+</section>
+<section class="toolbar" data-filter-scope="compare-metrics">
+  <label class="search-box">Search comparison metrics
+    <input type="search" data-filter-search="compare-metrics" placeholder="Metric, current, previous, delta">
+  </label>
+</section>
+<section class="grid two">
+  <article data-filter-root="compare-metrics">
+    <h2>Delta Breakdown</h2>
+    {_compare_table(compare)}
   </article>
   <article>
-    <h2>Known Failures</h2>
-    {_failure_transition_table(transitions["known_failures"], kind="known")}
+    <h2>Quality Movement</h2>
+    {_quality_score_card(report_data["quality_score"])}
+    {_risk_signal_card(report_data["risk_signal"])}
+  </article>
+</section>
+<section class="toolbar" data-filter-scope="compare-failures">
+  <label class="search-box">Search failure movement
+    <input type="search" data-filter-search="compare-failures" placeholder="Test, category, status">
+  </label>
+  {_select_filter("compare-kind", "Kind", ["new", "known", "resolved"], data_filter="kind")}
+</section>
+<section data-filter-root="compare-failures">
+  <article>
+    <h2>Failure Movement</h2>
+    {_failure_transition_table(transitions)}
+  </article>
+</section>
+<section class="grid two">
+  <article>
+    <h2>Stability</h2>
+    {_stability_card(report_data["stability"])}
   </article>
   <article>
-    <h2>Resolved Failures</h2>
-    {_failure_transition_table(transitions["resolved_failures"], kind="resolved")}
+    <h2>Resource Efficiency</h2>
+    {_resource_efficiency_card(report_data["resource_efficiency"])}
   </article>
 </section>
 """,
@@ -879,6 +971,8 @@ def _render_executive_page(
   {_metric("Failed", summary["failed"] + summary["broken"])}
   {_metric("Skipped", summary["skipped"])}
   {_metric("Flaky", summary["flaky"])}
+  {_metric("Quality Score", _score_value(report_data["quality_score"]))}
+  {_metric("Risk", report_data["risk_signal"].get("level", "low"))}
   {_metric("Duration", _format_duration(summary["duration_ms"]))}
 </section>
 <section class="grid two">
@@ -918,6 +1012,20 @@ def _render_executive_page(
                 }
             )
         }
+  </article>
+</section>
+<section class="grid three">
+  <article>
+    <h2>Quality Score</h2>
+    {_quality_score_card(report_data["quality_score"])}
+  </article>
+  <article>
+    <h2>Risk Signal</h2>
+    {_risk_signal_card(report_data["risk_signal"])}
+  </article>
+  <article>
+    <h2>Recovery</h2>
+    {_recovery_card(report_data["recovery"])}
   </article>
 </section>
 <section>
@@ -1190,6 +1298,7 @@ def _nav(active: str, *, prefix: str = "") -> str:
         ("dashboard", "Dashboard", "index.html"),
         ("executive", "Executive", "executive.html"),
         ("quality", "Quality", "quality.html"),
+        ("compare", "Compare", "compare.html"),
         ("explore", "Tests", "explore.html"),
         ("timeline", "Timeline", "timeline.html"),
         ("flaky", "Flaky", "flaky.html"),
@@ -1212,30 +1321,31 @@ def _page(title: str, body: str) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{_e(title)}</title>
   <style>
-    :root {{ color-scheme: light; --ink:#172033; --muted:#5b6472; --line:#dbe3ec; --panel:#ffffff; --bg:#f5f7fa; --accent:#0f766e; --accent-2:#2563eb; --danger:#b91c1c; --warn:#b45309; --ok:#047857; }}
+    :root {{ color-scheme: light; --ink:#172033; --muted:#5b6472; --line:#dbe3ec; --panel:#ffffff; --bg:#f5f7fa; --accent:#0f766e; --accent-2:#2563eb; --danger:#b91c1c; --warn:#b45309; --ok:#047857; --shadow:0 12px 30px rgba(15,23,42,.08); }}
     * {{ box-sizing:border-box; }}
-    body {{ margin:0; font-family: Arial, sans-serif; color:var(--ink); background:var(--bg); overflow-x:hidden; }}
-    .hero {{ background:#102033; color:#fff; padding:30px clamp(18px,4vw,42px); display:flex; justify-content:space-between; gap:18px; align-items:flex-start; }}
+    body {{ margin:0; font-family: Arial, sans-serif; color:var(--ink); background:linear-gradient(180deg,#eef3f8 0,#f7f9fb 260px,#f5f7fa 100%); overflow-x:hidden; }}
+    .hero {{ background:linear-gradient(135deg,#0d1b2a,#142f43); color:#fff; padding:30px clamp(18px,4vw,42px); display:flex; justify-content:space-between; gap:18px; align-items:flex-start; border-bottom:1px solid rgba(255,255,255,.16); }}
     .hero.compact {{ padding:22px clamp(18px,4vw,42px); }}
     h1 {{ margin:0 0 8px; font-size:clamp(24px,3vw,34px); letter-spacing:0; overflow-wrap:anywhere; }}
     h2 {{ margin:0 0 14px; font-size:18px; letter-spacing:0; }}
     h3 {{ margin:0 0 10px; font-size:15px; }}
     p {{ margin:0; color:inherit; overflow-wrap:anywhere; }}
     .eyebrow {{ color:#b7c7d7; font-size:12px; text-transform:uppercase; letter-spacing:0; margin-bottom:7px; overflow-wrap:anywhere; }}
-    .app-nav {{ position:sticky; top:0; z-index:3; display:flex; gap:6px; flex-wrap:wrap; padding:12px clamp(18px,4vw,42px); background:#fff; border-bottom:1px solid var(--line); box-shadow:0 1px 0 rgba(15,23,42,.04); }}
-    .app-nav a {{ color:#0f5b99; font-weight:700; text-decoration:none; padding:8px 10px; border-radius:8px; }}
-    .app-nav a.active {{ background:#e7f3ff; color:#0b4d83; }}
+    .app-nav {{ position:sticky; top:0; z-index:3; display:flex; gap:6px; flex-wrap:nowrap; overflow-x:auto; padding:12px clamp(18px,4vw,42px); background:rgba(255,255,255,.96); border-bottom:1px solid var(--line); box-shadow:0 1px 0 rgba(15,23,42,.04); scrollbar-gutter:stable; }}
+    .app-nav a {{ color:#0f5b99; font-weight:700; text-decoration:none; padding:8px 10px; border-radius:8px; white-space:nowrap; }}
+    .app-nav a.active {{ background:#e7f3ff; color:#0b4d83; box-shadow:inset 0 0 0 1px #bfdbfe; }}
     section {{ margin:22px clamp(18px,4vw,42px); max-width:100%; }}
-    article {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; min-width:0; max-width:100%; overflow:hidden; }}
+    article {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; min-width:0; max-width:100%; overflow:hidden; box-shadow:var(--shadow); }}
     .metrics {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:12px; }}
     .metrics.compact {{ margin-bottom:12px; }}
-    .metric {{ background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; min-width:0; }}
+    .metric {{ background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; min-width:0; box-shadow:0 4px 18px rgba(15,23,42,.05); }}
     .metric strong {{ display:block; font-size:26px; margin-bottom:4px; overflow-wrap:anywhere; }}
     .grid {{ display:grid; gap:16px; }}
     .grid.two {{ grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr)); }}
     .grid.three {{ grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr)); }}
     .grid.four {{ grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr)); }}
     .chart-grid article {{ min-height:220px; }}
+    .insight-card {{ display:grid; gap:12px; align-content:start; }}
     .toolbar {{ display:flex; flex-wrap:wrap; gap:12px; align-items:end; padding:14px; background:#fff; border:1px solid var(--line); border-radius:8px; }}
     .toolbar label {{ display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--muted); font-weight:700; min-width:150px; }}
     .search-box {{ flex:1 1 280px; }}
@@ -1252,12 +1362,21 @@ def _page(title: str, body: str) -> str:
     pre {{ white-space:pre-wrap; overflow:auto; background:#f4f6f8; border:1px solid #e1e6ed; border-radius:6px; padding:10px; max-width:100%; }}
     details {{ margin-top:10px; }}
     summary {{ cursor:pointer; color:#0f5b99; font-weight:700; }}
-    .status {{ display:inline-block; padding:5px 9px; border-radius:999px; font-size:12px; font-weight:700; text-transform:uppercase; white-space:nowrap; }}
+    .status {{ display:inline-block; padding:5px 9px; border-radius:999px; font-size:12px; font-weight:700; text-transform:uppercase; white-space:nowrap; line-height:1; }}
     .passed {{ color:#047857; background:#dff7ed; }}
     .warning {{ color:#92400e; background:#fef3c7; }}
     .failed,.broken,.failed_broken {{ color:#b91c1c; background:#fee2e2; }}
     .skipped {{ color:#92400e; background:#fef3c7; }}
     .unknown {{ color:#4b5563; background:#e5e7eb; }}
+    .low {{ color:#047857; background:#dff7ed; }}
+    .medium {{ color:#92400e; background:#fef3c7; }}
+    .high {{ color:#b91c1c; background:#fee2e2; }}
+    .score-ring {{ width:min(150px,100%); aspect-ratio:1; border-radius:50%; display:grid; place-items:center; margin:4px 0 14px; background:conic-gradient(var(--ok) 0 75%,#e5e7eb 75% 100%); box-shadow:inset 0 0 0 18px #fff,0 8px 18px rgba(15,23,42,.08); }}
+    .score-ring strong {{ font-size:28px; }}
+    .score-ring span {{ color:var(--muted); font-size:12px; text-transform:uppercase; font-weight:700; }}
+    .score-ring.status-warning {{ background:conic-gradient(var(--warn) 0 62%,#e5e7eb 62% 100%); }}
+    .score-ring.status-failed {{ background:conic-gradient(var(--danger) 0 45%,#e5e7eb 45% 100%); }}
+    .score-ring.status-unknown {{ background:conic-gradient(#64748b 0 20%,#e5e7eb 20% 100%); }}
     .bar,.hbar-track {{ height:9px; background:#e5e7eb; border-radius:999px; overflow:hidden; min-width:80px; }}
     .bar span,.hbar-fill {{ display:block; height:100%; background:var(--accent); }}
     .hbar-row {{ display:grid; grid-template-columns:minmax(90px,1fr) minmax(90px,2fr) auto; gap:10px; align-items:center; margin:9px 0; }}
@@ -1285,11 +1404,11 @@ def _page(title: str, body: str) -> str:
     .matrix-heatmap {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr)); gap:10px; margin-bottom:14px; }}
     body[data-matrix-view="table"] .matrix-heatmap {{ display:none; }}
     body[data-matrix-view="heatmap-only"] .matrix-table {{ display:none; }}
-    .heat-cell {{ border:1px solid var(--line); border-radius:8px; padding:12px; background:#f8fafc; min-width:0; display:grid; gap:10px; align-content:start; }}
+    .heat-cell {{ border:1px solid var(--line); border-radius:8px; padding:14px; background:#f8fafc; min-width:0; display:grid; gap:12px; align-content:start; }}
     .heat-head {{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; min-width:0; }}
     .heat-name {{ font-weight:700; overflow-wrap:anywhere; min-width:0; line-height:1.25; }}
     .heat-value {{ flex:0 0 auto; white-space:nowrap; }}
-    .heat-bar {{ height:11px; background:#e5e7eb; border-radius:999px; overflow:hidden; margin:1px 0; }}
+    .heat-bar {{ height:11px; background:#e5e7eb; border-radius:999px; overflow:hidden; margin:4px 0; }}
     .heat-bar span {{ display:block; height:100%; background:linear-gradient(90deg,#dc2626,#eab308,#16a34a); }}
     .heat-details {{ color:var(--muted); font-size:13px; line-height:1.45; display:grid; gap:3px; overflow-wrap:anywhere; word-break:break-word; }}
     .heat-failures {{ color:#425066; }}
@@ -1460,7 +1579,7 @@ def _page(title: str, body: str) -> str:
     }});
   </script>
 </head>
-<body>
+<body data-visual-system="enterprise-redesign">
 {body}
 </body>
 </html>
@@ -1469,6 +1588,13 @@ def _page(title: str, body: str) -> str:
 
 def _metric(label: str, value: Any) -> str:
     return f'<div class="metric"><strong>{_e(value)}</strong>{_e(label)}</div>'
+
+
+def _metric_with_note(label: str, value: Any, note: Any) -> str:
+    return (
+        f'<div class="metric" title="{_e(note)}"><strong>{_e(value)}</strong>{_e(label)}'
+        f'<br><span class="muted">{_e(note)}</span></div>'
+    )
 
 
 def _select_filter(
@@ -2047,6 +2173,143 @@ def _history_comparison_view(comparison: dict[str, Any]) -> str:
     )
 
 
+def _quality_score_card(score: dict[str, Any]) -> str:
+    components = score.get("components", {})
+    percent = _score_percent(score)
+    color = {
+        "passed": "var(--ok)",
+        "warning": "var(--warn)",
+        "failed": "var(--danger)",
+    }.get(str(score.get("status", "unknown")), "#64748b")
+    style = f' style="background:conic-gradient({color} 0 {percent:g}%,#e5e7eb {percent:g}% 100%)"'
+    return (
+        f'<div class="score-ring status-{_e(score.get("status", "unknown"))}"{style}><strong>{_e(_score_value(score))}</strong>'
+        f"<span>{_e(score.get('grade', 'n/a'))}</span></div>"
+        + _key_values(
+            {
+                "Base Pass Rate": f"{components.get('base_pass_rate', 0)}%",
+                "Failure Penalty": components.get("failure_penalty", 0),
+                "Flaky Penalty": components.get("flaky_penalty", 0),
+                "Retry Penalty": components.get("retry_penalty", 0),
+                "Slow Tests": components.get("slow_tests", 0),
+                "Message": score.get("message", ""),
+            }
+        )
+    )
+
+
+def _risk_signal_card(risk: dict[str, Any]) -> str:
+    reasons = risk.get("reasons", [])
+    reason_html = "".join(
+        f"<li><strong>{_e(item.get('label', ''))}</strong>: {_e(item.get('value', 0))}"
+        f'<span class="muted"> · {_e(item.get("level", ""))}</span></li>'
+        for item in reasons
+    )
+    reason_block = f"<ul>{reason_html}</ul>" if reason_html else '<p class="empty-state">No material risk signals.</p>'
+    return (
+        f'<p><span class="status {_e(risk.get("level", "low"))}">{_e(risk.get("level", "low"))}</span></p>'
+        f'<p class="muted">{_e(risk.get("summary", ""))}</p>'
+        f"{reason_block}"
+    )
+
+
+def _recovery_card(recovery: dict[str, Any]) -> str:
+    value = recovery.get("mean_recovery_ms")
+    return _key_values(
+        {
+            "Status": recovery.get("status", "not_available"),
+            "Mean Recovery": _format_duration(value) if value is not None else "N/A",
+            "Recovered Tests": len(recovery.get("recovered_tests", []) or []),
+            "Message": recovery.get("message", ""),
+        }
+    )
+
+
+def _stability_card(stability: dict[str, Any]) -> str:
+    unstable = stability.get("unstable_tests", [])[:6]
+    details = "".join(
+        f"<li>{_e(item.get('identity', ''))}: {_e(item.get('changes', 0))} changes</li>" for item in unstable
+    )
+    return _key_values(
+        {
+            "Status": stability.get("status", "not_available"),
+            "Score": stability.get("score") if stability.get("score") is not None else "N/A",
+            "Available Runs": stability.get("available_runs", 0),
+            "Retry Recovered": stability.get("retry_recovered_count", 0),
+            "Message": stability.get("message", ""),
+        }
+    ) + (f"<ul>{details}</ul>" if details else "")
+
+
+def _resource_efficiency_card(resource: dict[str, Any]) -> str:
+    return _key_values(
+        {
+            "Status": resource.get("status", "not_available"),
+            "Efficiency": (
+                f"{resource.get('efficiency_percent')}%" if resource.get("efficiency_percent") is not None else "N/A"
+            ),
+            "Workers": resource.get("worker_count", "N/A"),
+            "Wall Clock": (
+                _format_duration(resource.get("wall_clock_duration_ms", 0))
+                if resource.get("wall_clock_duration_ms")
+                else "N/A"
+            ),
+            "Message": resource.get("message", ""),
+        }
+    )
+
+
+def _compare_table(compare: dict[str, Any]) -> str:
+    rows = "\n".join(
+        f'<tr data-filter-row data-search="{_e(_row_search(item))}">'
+        f"<td>{_e(item.get('label', item.get('metric', '')))}</td>"
+        f"<td>{_e(item.get('current', 0))}</td><td>{_e(item.get('previous', 0))}</td>"
+        f"<td>{_format_delta(item.get('delta'))}</td><td>{_e(item.get('direction', 'flat'))}</td></tr>"
+        for item in compare.get("metrics", [])
+    )
+    empty = '<tr><td colspan="5">No previous run comparison.</td></tr>'
+    return (
+        '<div class="table-wrap wide"><table><thead><tr><th>Metric</th><th>Current</th><th>Previous</th>'
+        f"<th>Delta</th><th>Direction</th></tr></thead><tbody>{rows or empty}</tbody></table></div>"
+    )
+
+
+def _compare_delta(compare: dict[str, Any], metric: str) -> str:
+    for item in compare.get("metrics", []):
+        if item.get("metric") == metric:
+            return _format_delta(item.get("delta"), suffix="%" if metric == "pass_rate" else "")
+    return "-"
+
+
+def _retry_delta(compare: dict[str, Any]) -> str:
+    deltas = {
+        item.get("metric"): item.get("delta", 0)
+        for item in compare.get("metrics", [])
+        if item.get("metric") in {"test_retry_count", "action_retry_count"}
+    }
+    if not deltas:
+        return "-"
+    return _format_delta(sum(float(value or 0) for value in deltas.values()))
+
+
+def _score_value(score: dict[str, Any]) -> str:
+    value = score.get("score")
+    return "N/A" if value is None else f"{value:g}"
+
+
+def _score_percent(score: dict[str, Any]) -> float:
+    try:
+        return max(0.0, min(100.0, float(score.get("score", 0) or 0)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _short_run_id(value: str, *, limit: int = 18) -> str:
+    if not value:
+        return "-"
+    return value if len(value) <= limit else f"{value[: limit - 1]}..."
+
+
 def _quality_overview(quality: dict[str, Any]) -> str:
     return _key_values(
         {
@@ -2067,15 +2330,21 @@ def _quality_gate_table(quality: dict[str, Any]) -> str:
         f'<td><span class="status {_e(result.get("status", "unknown"))}">{_e(result.get("status", ""))}</span></td>'
         f"<td>{_e(result.get('name', ''))}</td><td>{_e(result.get('metric', ''))}</td>"
         f"<td>{_e(result.get('expected', ''))}</td><td>{_e(result.get('actual', ''))}</td>"
-        f"<td>{_e(result.get('severity', ''))}</td><td>{_e(result.get('message', ''))}</td></tr>"
+        f"<td>{_e(_gate_failure_impact(result))}</td><td>{_e(result.get('message', ''))}</td></tr>"
         for result in results
     )
     empty = '<tr><td colspan="7">No quality gates configured.</td></tr>'
     return (
         '<div class="table-wrap wide"><table><thead><tr><th>Status</th><th>Name</th><th>Metric</th>'
-        "<th>Expected</th><th>Actual</th><th>Severity</th><th>Message</th></tr></thead>"
+        "<th>Expected</th><th>Actual</th><th>Failure Impact</th><th>Message</th></tr></thead>"
         f"<tbody>{rows or empty}</tbody></table></div>"
     )
+
+
+def _gate_failure_impact(result: dict[str, Any]) -> str:
+    if result.get("status") == "passed":
+        return "N/A"
+    return _humanize_label(str(result.get("severity", "")) or "failed")
 
 
 def _failure_transition_counts(transitions: dict[str, Any]) -> str:
@@ -2090,20 +2359,40 @@ def _failure_transition_counts(transitions: dict[str, Any]) -> str:
     )
 
 
-def _failure_transition_table(items: list[dict[str, Any]], *, kind: str) -> str:
+def _failure_transition_table(transitions: dict[str, Any]) -> str:
     rows = "\n".join(
+        _failure_transition_row(item, kind)
+        for kind, key in (
+            ("new", "new_failures"),
+            ("known", "known_failures"),
+            ("resolved", "resolved_failures"),
+        )
+        for item in transitions.get(key, [])
+    )
+    empty = '<tr><td colspan="5">No failure movement.</td></tr>'
+    return (
+        '<div class="table-wrap wide failure-movement"><table><thead><tr><th>Kind</th><th>Test</th>'
+        f"<th>Status</th><th>Failure</th><th>Link</th></tr></thead><tbody>{rows or empty}</tbody></table></div>"
+    )
+
+
+def _failure_transition_row(item: dict[str, Any], kind: str) -> str:
+    return (
         f'<tr data-filter-row data-kind="{_e(kind)}" data-search="{_e(kind)} {_e(_row_search(item))}">'
+        f'<td><span class="status {_e(_movement_status(kind))}">{_e(kind)}</span></td>'
         f'<td>{_e(item.get("name", ""))}<br><span class="muted">{_e(item.get("identity", ""))}</span></td>'
         f"<td>{_e(item.get('status') or item.get('current_status') or '')}</td>"
         f"<td>{_e(item.get('failure_title') or item.get('failure_category') or '')}</td>"
         f"<td>{_failure_transition_link(item)}</td></tr>"
-        for item in items
     )
-    empty = '<tr><td colspan="4">No items.</td></tr>'
-    return (
-        '<div class="table-wrap"><table><thead><tr><th>Test</th><th>Status</th>'
-        f"<th>Failure</th><th>Link</th></tr></thead><tbody>{rows or empty}</tbody></table></div>"
-    )
+
+
+def _movement_status(kind: str) -> str:
+    if kind == "resolved":
+        return "passed"
+    if kind == "known":
+        return "warning"
+    return "failed"
 
 
 def _failure_transition_link(item: dict[str, Any]) -> str:

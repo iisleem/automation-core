@@ -89,6 +89,7 @@ def test_reporting_product_generates_dashboard_details_timeline_matrix_and_histo
     assert (tmp_path / "product" / "matrix.html").exists()
     assert (tmp_path / "product" / "history.html").exists()
     assert (tmp_path / "product" / "explore.html").exists()
+    assert (tmp_path / "product" / "compare.html").exists()
     assert (tmp_path / "product" / "report-data.json").exists()
     assert (tmp_path / "product" / "data" / "run-report.json").exists()
     detail_pages = list((tmp_path / "product" / "tests").glob("*.html"))
@@ -304,6 +305,14 @@ def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
     assert sidecar["aggregates"]["coverage"]["profile"]["chromium"] == 2
     assert sidecar["aggregates"]["filter_options"]["failure_category"]
     assert sidecar["charts"]["retry_signals"]["healing_event_count"] == 1
+    assert sidecar["quality_score"]
+    assert sidecar["risk_signal"]
+    assert sidecar["default_gate_status"]
+    assert sidecar["compare"]
+    assert sidecar["stability"]
+    assert sidecar["recovery"]
+    assert sidecar["resource_efficiency"]
+    assert any(item["metric"] == "pass_rate" for item in sidecar["compare"]["metrics"])
     assert sidecar["risk_signals"]
     details = {item["test_id"]: item["detail_href"] for item in sidecar["test_index"]}
     assert sidecar == build_report_data(
@@ -321,11 +330,13 @@ def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
     flaky_html = (tmp_path / "product" / "flaky.html").read_text(encoding="utf-8")
     matrix_html = (tmp_path / "product" / "matrix.html").read_text(encoding="utf-8")
     history_html = (tmp_path / "product" / "history.html").read_text(encoding="utf-8")
+    compare_html = (tmp_path / "product" / "compare.html").read_text(encoding="utf-8")
     detail_html = next(
         page for page in (tmp_path / "product" / "tests").glob("*.html") if "login" in page.name
     ).read_text(encoding="utf-8")
     assert "Run Health" in index_html
     assert 'href="executive.html"' in index_html
+    assert 'href="compare.html"' in index_html
     assert 'href="share.html"' in index_html
     assert "Executive Summary" in executive_html
     assert "Share And Export" in share_html
@@ -375,8 +386,16 @@ def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
     assert "data-matrix-view" in matrix_html
     assert "Recent Comparison" in history_html
     assert 'data-filter-search="history-table"' in history_html
+    assert "Compare Runs" in compare_html
+    assert 'data-filter-search="compare-metrics"' in compare_html
+    assert 'data-filter-search="compare-failures"' in compare_html
+    assert "Failure Movement" in compare_html
+    assert "failure-movement" in compare_html
+    assert "<th>Kind</th>" in compare_html
+    assert '<section class="grid three" data-filter-root="compare-failures">' not in compare_html
     assert "Smart Failure Summary" in detail_html
     assert 'href="../executive.html"' in detail_html
+    assert 'href="../compare.html"' in detail_html
     assert 'href="../share.html"' in detail_html
     assert "Healing Events" in detail_html
     assert "Search this test" in detail_html

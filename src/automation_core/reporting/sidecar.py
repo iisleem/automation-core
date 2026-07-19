@@ -12,6 +12,7 @@ from automation_core.reporting.analysis import (
 )
 from automation_core.reporting.events import ReportingEvent, build_timeline_events
 from automation_core.reporting.history import trend_points
+from automation_core.reporting.insights import ReportInsightConfig, build_enterprise_insights
 from automation_core.reporting.models import Artifact, RunReport, TestCaseReport, to_jsonable
 from automation_core.reporting.quality import QualityGate, QualityGateConfig, evaluate_quality_gates
 from automation_core.reporting.redaction import redact_payload, redact_report, redaction_manifest
@@ -30,6 +31,7 @@ def build_report_data(
     | list[QualityGate | dict[str, Any]]
     | tuple[QualityGate | dict[str, Any], ...]
     | None = None,
+    insight_config: ReportInsightConfig | dict[str, Any] | None = None,
     safe_share: bool = True,
     redaction: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -48,6 +50,17 @@ def build_report_data(
     aggregates = _aggregates(report, test_index)
     signals = _signal_counts(report)
     run_comparison = _run_comparison(summary, history, signals)
+    failure_transitions = _failure_transitions(test_index, history, summary)
+    insights = build_enterprise_insights(
+        report,
+        summary=summary,
+        test_index=test_index,
+        signals=signals,
+        failure_transitions=failure_transitions,
+        history_entries=history,
+        run_comparison=run_comparison,
+        config=insight_config,
+    )
 
     payload = {
         "run": {
@@ -64,6 +77,8 @@ def build_report_data(
             "artifact_types": aggregates["artifact_types"],
             "coverage": aggregates["coverage"],
             "run_comparison": _run_comparison_chart(run_comparison),
+            "quality_score_components": insights["quality_score"]["components"],
+            "compare_metrics": insights["compare"]["metrics"],
         },
         "top_slow_tests": _test_refs(speed["slowest"]),
         "failure_clusters": _failure_clusters(report),
@@ -73,9 +88,18 @@ def build_report_data(
         },
         "signals": signals,
         "risk_signals": _risk_signals(report, test_index),
+        "quality_score": insights["quality_score"],
+        "risk_signal": insights["risk_signal"],
         "quality": evaluate_quality_gates(report, quality_gates).to_dict(),
-        "failure_transitions": _failure_transitions(test_index, history, summary),
+        "default_gate_status": insights["default_gate_status"],
+        "failure_transitions": failure_transitions,
         "run_comparison": run_comparison,
+        "compare": insights["compare"],
+        "stability": insights["stability"],
+        "recovery": insights["recovery"],
+        "resource_efficiency": insights["resource_efficiency"],
+        "ui_metadata": insights["ui_metadata"],
+        "report_config": insights["config"],
         "matrix": matrix_summary(report),
         "timeline": {
             "event_counts": dict(sorted(Counter(event.event_type for event in timeline).items())),
@@ -363,6 +387,7 @@ def _run_comparison(
     metrics = {
         "total": (summary.get("total", 0), previous.get("total", 0)),
         "passed": (summary.get("passed", 0), previous.get("passed", 0)),
+        "pass_rate": (summary.get("pass_rate", 0), previous.get("pass_rate", 0)),
         "failed_broken": (
             summary.get("failed", 0) + summary.get("broken", 0),
             previous.get("failed", 0) + previous.get("broken", 0),
@@ -401,7 +426,17 @@ def _run_comparison_chart(comparison: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {"metric": metric, **values}
         for metric, values in comparison.get("values", {}).items()
-        if metric in {"total", "passed", "failed_broken", "skipped", "flaky", "test_retry_count", "action_retry_count"}
+        if metric
+        in {
+            "total",
+            "passed",
+            "pass_rate",
+            "failed_broken",
+            "skipped",
+            "flaky",
+            "test_retry_count",
+            "action_retry_count",
+        }
     ]
 
 
