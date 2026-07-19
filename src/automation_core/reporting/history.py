@@ -13,6 +13,7 @@ from automation_core.reporting.analysis import (
     summarize_run,
 )
 from automation_core.reporting.models import RunReport, TestCaseReport, to_jsonable
+from automation_core.reporting.status import is_blocking_failure_status
 from automation_core.reporting.traversal import collect_action_retries, collect_test_artifacts
 
 INDEX_FILE = "index.json"
@@ -24,7 +25,7 @@ def history_entry_from_report(report: RunReport) -> dict[str, Any]:
     return {
         **summary,
         "failure_categories": failure_categories(report),
-        "failed_tests": [_failed_test_entry(test) for test in report.tests if test.status in {"failed", "broken"}],
+        "failed_tests": [_failed_test_entry(test) for test in report.tests if is_blocking_failure_status(test.status)],
         "test_statuses": [_test_status_entry(test) for test in report.tests],
         "flaky_tests": flaky_analysis(report),
         "slow_tests": [
@@ -89,7 +90,10 @@ def trend_points(history_entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "latest_run": entry.get("latest_run", ""),
             "pass_rate": entry.get("pass_rate", 0),
             "flaky": entry.get("flaky", 0),
-            "failed": entry.get("failed", 0) + entry.get("broken", 0),
+            "failed": entry.get(
+                "blocking_failures",
+                entry.get("failed", 0) + entry.get("broken", 0) + entry.get("error", 0),
+            ),
             "duration_ms": entry.get("duration_ms", 0),
         }
         for entry in history_entries

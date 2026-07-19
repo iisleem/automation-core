@@ -4,13 +4,20 @@ from collections import Counter
 from typing import Any
 
 from automation_core.reporting.models import RunReport, TestCaseReport
+from automation_core.reporting.status import (
+    BROKEN_STATUS,
+    ERROR_STATUS,
+    FAILED_STATUS,
+    MATRIX_STATUSES,
+    PASSED_STATUS,
+    SKIPPED_STATUS,
+    UNKNOWN_STATUS,
+    is_blocking_failure_status,
+    normalized_status,
+)
 from automation_core.reporting.traversal import collect_action_retries
 
-FAILED_STATUSES = {"failed", "broken"}
-PASSED_STATUS = "passed"
-SKIPPED_STATUS = "skipped"
 DEFAULT_SLOW_THRESHOLD_MS = 30_000
-MATRIX_STATUSES = ("passed", "failed", "broken", "skipped", "unknown")
 
 FAILURE_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("appium_server_unreachable", ("appium server unreachable", "appium", "connection refused", "could not connect")),
@@ -65,16 +72,18 @@ FAILURE_SUMMARIES: dict[str, dict[str, str]] = {
 
 def summarize_run(report: RunReport) -> dict[str, Any]:
     total = len(report.tests)
-    passed = sum(1 for test in report.tests if test.status == PASSED_STATUS)
-    failed = sum(1 for test in report.tests if test.status == "failed")
-    broken = sum(1 for test in report.tests if test.status == "broken")
-    skipped = sum(1 for test in report.tests if test.status == SKIPPED_STATUS)
+    passed = sum(1 for test in report.tests if normalized_status(test.status) == PASSED_STATUS)
+    failed = sum(1 for test in report.tests if normalized_status(test.status) == FAILED_STATUS)
+    broken = sum(1 for test in report.tests if normalized_status(test.status) == BROKEN_STATUS)
+    error = sum(1 for test in report.tests if normalized_status(test.status) == ERROR_STATUS)
+    skipped = sum(1 for test in report.tests if normalized_status(test.status) == SKIPPED_STATUS)
+    blocking_failures = failed + broken + error
     flaky = sum(1 for test in report.tests if is_test_flaky(test) or has_action_flaky(test))
     duration_ms = report.duration_ms or sum(test.duration_ms for test in report.tests)
     pass_rate = round((passed / total) * 100, 2) if total else 0
-    status = "passed" if total and failed + broken == 0 else "failed"
+    status = "passed" if total and blocking_failures == 0 else "failed"
     if total == 0:
-        status = "unknown"
+        status = UNKNOWN_STATUS
 
     return {
         "run_id": report.run_id,
@@ -86,6 +95,8 @@ def summarize_run(report: RunReport) -> dict[str, Any]:
         "passed": passed,
         "failed": failed,
         "broken": broken,
+        "error": error,
+        "blocking_failures": blocking_failures,
         "skipped": skipped,
         "flaky": flaky,
         "duration_ms": duration_ms,
@@ -115,11 +126,11 @@ def flaky_analysis(
         reason = ""
         if is_test_flaky(test):
             category = "test_retry_flaky"
-            reason = "failed/broken attempt eventually passed"
+            reason = "blocking attempt eventually passed"
         elif has_action_flaky(test):
             category = "action_retry_flaky"
             reason = "action retry failed then passed"
-        elif test.status in FAILED_STATUSES:
+        elif is_blocking_failure_status(test.status):
             category = "always_failing"
             reason = classify_failure(test)
         elif test.status == PASSED_STATUS and test.duration_ms >= slow_threshold_ms:
@@ -142,7 +153,7 @@ def flaky_analysis(
 
 
 def failure_categories(report: RunReport) -> dict[str, int]:
-    counter = Counter(classify_failure(test) for test in report.tests if test.status in FAILED_STATUSES)
+    counter = Counter(classify_failure(test) for test in report.tests if is_blocking_failure_status(test.status))
     return dict(sorted(counter.items()))
 
 
@@ -183,10 +194,10 @@ def classify_failure(test: TestCaseReport) -> str:
 
 
 def is_test_flaky(test: TestCaseReport) -> bool:
-    if test.status != PASSED_STATUS:
+    if normalized_status(test.status) != PASSED_STATUS:
         return False
     retry_statuses = [retry.status for retry in test.retries]
-    return any(status in FAILED_STATUSES for status in retry_statuses)
+    return any(is_blocking_failure_status(status) for status in retry_statuses)
 
 
 def has_action_flaky(test: TestCaseReport) -> bool:
@@ -194,7 +205,10 @@ def has_action_flaky(test: TestCaseReport) -> bool:
     if not action_retries:
         return False
     statuses = [retry.status for retry in action_retries]
-    return any(status in FAILED_STATUSES for status in statuses) and statuses[-1] == PASSED_STATUS
+    return (
+        any(is_blocking_failure_status(status) for status in statuses)
+        and normalized_status(statuses[-1]) == PASSED_STATUS
+    )
 
 
 def matrix_summary(report: RunReport) -> dict[str, dict[str, dict[str, Any]]]:
@@ -205,11 +219,20 @@ def matrix_summary(report: RunReport) -> dict[str, dict[str, dict[str, Any]]]:
             for value in _dimension_values(test, dimension):
                 bucket = values.setdefault(
                     str(value),
-                    {"total": 0, "passed": 0, "failed": 0, "broken": 0, "skipped": 0, "unknown": 0},
+                    {
+                        "total": 0,
+                        "passed": 0,
+                        "failed": 0,
+                        "broken": 0,
+                        "error": 0,
+                        "skipped": 0,
+                        "unknown": 0,
+                    },
                 )
                 bucket["total"] += 1
-                bucket[test.status if test.status in MATRIX_STATUSES else "unknown"] += 1
-                if test.status in FAILED_STATUSES:
+                status = normalized_status(test.status)
+                bucket[status if status in MATRIX_STATUSES else UNKNOWN_STATUS] += 1
+                if is_blocking_failure_status(status):
                     categories = bucket.setdefault("failure_categories", {})
                     category = classify_failure(test)
                     categories[category] = categories.get(category, 0) + 1

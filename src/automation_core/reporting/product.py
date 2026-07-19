@@ -26,6 +26,7 @@ from automation_core.reporting.models import Artifact, RunReport, StepRecord, Te
 from automation_core.reporting.quality import QualityGate, QualityGateConfig
 from automation_core.reporting.redaction import is_sensitive_name, redact_report, redact_text
 from automation_core.reporting.sidecar import build_report_data
+from automation_core.reporting.status import is_blocking_failure_status
 from automation_core.reporting.traversal import collect_action_retries, collect_test_artifacts
 from automation_core.reporting.validation import assert_valid_report
 
@@ -309,7 +310,7 @@ def _write_executive_summary_docx(path: Path, report: RunReport, report_data: di
         ("Pass Rate", f"{summary.get('pass_rate', 0)}%"),
         ("Total Tests", summary.get("total", 0)),
         ("Passed", summary.get("passed", 0)),
-        ("Failed/Broken", summary.get("failed", 0) + summary.get("broken", 0)),
+        ("Failures", _blocking_failure_count(summary)),
         ("Skipped", summary.get("skipped", 0)),
         ("Flaky", summary.get("flaky", 0)),
         ("Duration", _format_duration(summary.get("duration_ms", 0))),
@@ -337,7 +338,7 @@ def _share_card_svg(report: RunReport, report_data: dict[str, Any]) -> str:
     summary = report_data["run"]["summary"]
     quality = report_data.get("quality", {})
     transitions = report_data.get("failure_transitions", {}).get("counts", {})
-    failed_total = summary.get("failed", 0) + summary.get("broken", 0)
+    failed_total = _blocking_failure_count(summary)
     quality_status = str(quality.get("status", "passed")).upper()
     status_color = "#047857" if quality_status == "PASSED" else "#b45309" if quality_status == "WARNING" else "#b91c1c"
     title = _trim(report.project_name or "Automation Report", 48)
@@ -350,7 +351,7 @@ def _share_card_svg(report: RunReport, report_data: dict[str, Any]) -> str:
   <rect x="950" y="44" width="176" height="52" rx="26" fill="#ffffff"/>
   <text x="1038" y="78" fill="{status_color}" font-family="Arial, sans-serif" font-size="22" font-weight="700" text-anchor="middle">{_xml_text(quality_status)}</text>
   {_svg_metric(56, 220, "Pass Rate", f"{summary.get('pass_rate', 0)}%")}
-  {_svg_metric(326, 220, "Failed/Broken", failed_total)}
+  {_svg_metric(326, 220, "Failures", failed_total)}
   {_svg_metric(596, 220, "Flaky", summary.get("flaky", 0))}
   {_svg_metric(866, 220, "Duration", _format_duration(summary.get("duration_ms", 0)))}
   {_svg_metric(56, 400, "New Failures", transitions.get("new", 0))}
@@ -556,7 +557,7 @@ def _render_dashboard(
 <section class="metrics">
   {_metric("Total", summary["total"])}
   {_metric("Passed", summary["passed"])}
-  {_metric("Failed", summary["failed"] + summary["broken"])}
+  {_metric("Failures", _blocking_failure_count(summary))}
   {_metric("Skipped", summary["skipped"])}
   {_metric("Flaky", summary["flaky"])}
   {_metric("Pass Rate", f"{summary['pass_rate']}%")}
@@ -576,7 +577,7 @@ def _render_dashboard(
                 {
                     "Pass Rate": f"{health['pass_rate']}%",
                     "Pass Rate Change": _format_delta(health.get("pass_rate_delta"), suffix="%"),
-                    "Failed Change": _format_delta(health.get("failed_delta")),
+                    "Failure Change": _format_delta(health.get("failed_delta")),
                     "Flaky Change": _format_delta(health.get("flaky_delta")),
                     "Duration Change": _format_duration_delta(health.get("duration_delta_ms")),
                     "Previous Run": health.get("previous_run_id") or "-",
@@ -803,7 +804,7 @@ def _render_compare_page(report: RunReport, report_data: dict[str, Any]) -> str:
 <section class="metrics">
   {_metric_with_note("Previous Run", _short_run_id(compare.get("previous_run_id") or ""), compare.get("previous_run_id") or "-")}
   {_metric("Pass Rate Delta", _compare_delta(compare, "pass_rate"))}
-  {_metric("Failed Delta", _compare_delta(compare, "failed_broken"))}
+  {_metric("Failure Delta", _compare_delta(compare, "failed_broken"))}
   {_metric("Retry Delta", _retry_delta(compare))}
   {_metric("New Failures", transitions["counts"]["new"])}
   {_metric("Resolved", transitions["counts"]["resolved"])}
@@ -968,7 +969,7 @@ def _render_executive_page(
 <section class="metrics">
   {_metric("Pass Rate", f"{summary['pass_rate']}%")}
   {_metric("Passed", summary["passed"])}
-  {_metric("Failed", summary["failed"] + summary["broken"])}
+  {_metric("Failures", _blocking_failure_count(summary))}
   {_metric("Skipped", summary["skipped"])}
   {_metric("Flaky", summary["flaky"])}
   {_metric("Quality Score", _score_value(report_data["quality_score"]))}
@@ -984,7 +985,7 @@ def _render_executive_page(
                     "Headline": readiness["headline"],
                     "Next Action": readiness["next_action"],
                     "Pass Rate Change": _format_delta(health.get("pass_rate_delta"), suffix="%"),
-                    "Failed Change": _format_delta(health.get("failed_delta")),
+                    "Failure Change": _format_delta(health.get("failed_delta")),
                     "Previous Run": health.get("previous_run_id") or "-",
                 }
             )
@@ -1121,7 +1122,7 @@ def _render_print_summary_page(
                     "Headline": readiness["headline"],
                     "Next Action": readiness["next_action"],
                     "Pass Rate": f"{summary['pass_rate']}%",
-                    "Failed": summary["failed"] + summary["broken"],
+                    "Failures": _blocking_failure_count(summary),
                     "Flaky": summary["flaky"],
                     "Duration": _format_duration(summary["duration_ms"]),
                 }
@@ -1264,7 +1265,7 @@ def _render_history_page(report: RunReport, history_entries: list[dict[str, Any]
     rows = "\n".join(
         f'<tr data-filter-row data-search="{_e(_row_search(entry))}"><td>{_e(_format_datetime(entry.get("latest_run", "")))}</td><td>{_e(entry.get("run_id", ""))}</td>'
         f"<td>{entry.get('pass_rate', 0)}%</td><td>{entry.get('flaky', 0)}</td>"
-        f"<td>{entry.get('failed', 0) + entry.get('broken', 0)}</td><td>{_format_duration(entry.get('duration_ms', 0))}</td></tr>"
+        f"<td>{_blocking_failure_count(entry)}</td><td>{_format_duration(entry.get('duration_ms', 0))}</td></tr>"
         for entry in history_entries
     )
     return _page(
@@ -1287,7 +1288,7 @@ def _render_history_page(report: RunReport, history_entries: list[dict[str, Any]
 </section>
 <section>
   <h2>Runs</h2>
-  <div class="table-wrap wide"><table id="history-table"><thead><tr><th>Run Time</th><th>Run ID</th><th>Pass Rate</th><th>Flaky</th><th>Failed</th><th>Duration</th></tr></thead><tbody>{rows or '<tr><td colspan="6">No history yet.</td></tr>'}</tbody></table></div>
+  <div class="table-wrap wide"><table id="history-table"><thead><tr><th>Run Time</th><th>Run ID</th><th>Pass Rate</th><th>Flaky</th><th>Failures</th><th>Duration</th></tr></thead><tbody>{rows or '<tr><td colspan="6">No history yet.</td></tr>'}</tbody></table></div>
 </section>
 """,
     )
@@ -1323,7 +1324,8 @@ def _page(title: str, body: str) -> str:
   <style>
     :root {{ color-scheme: light; --ink:#172033; --muted:#5b6472; --line:#dbe3ec; --panel:#ffffff; --bg:#f5f7fa; --accent:#0f766e; --accent-2:#2563eb; --danger:#b91c1c; --warn:#b45309; --ok:#047857; --shadow:0 12px 30px rgba(15,23,42,.08); }}
     * {{ box-sizing:border-box; }}
-    body {{ margin:0; font-family: Arial, sans-serif; color:var(--ink); background:linear-gradient(180deg,#eef3f8 0,#f7f9fb 260px,#f5f7fa 100%); overflow-x:hidden; }}
+    html,body {{ max-width:100%; overflow-x:hidden; }}
+    body {{ margin:0; font-family: Arial, sans-serif; color:var(--ink); background:linear-gradient(180deg,#eef3f8 0,#f7f9fb 260px,#f5f7fa 100%); }}
     .hero {{ background:linear-gradient(135deg,#0d1b2a,#142f43); color:#fff; padding:30px clamp(18px,4vw,42px); display:flex; justify-content:space-between; gap:18px; align-items:flex-start; border-bottom:1px solid rgba(255,255,255,.16); }}
     .hero.compact {{ padding:22px clamp(18px,4vw,42px); }}
     h1 {{ margin:0 0 8px; font-size:clamp(24px,3vw,34px); letter-spacing:0; overflow-wrap:anywhere; }}
@@ -1331,10 +1333,10 @@ def _page(title: str, body: str) -> str:
     h3 {{ margin:0 0 10px; font-size:15px; }}
     p {{ margin:0; color:inherit; overflow-wrap:anywhere; }}
     .eyebrow {{ color:#b7c7d7; font-size:12px; text-transform:uppercase; letter-spacing:0; margin-bottom:7px; overflow-wrap:anywhere; }}
-    .app-nav {{ position:sticky; top:0; z-index:3; display:flex; gap:6px; flex-wrap:nowrap; overflow-x:auto; padding:12px clamp(18px,4vw,42px); background:rgba(255,255,255,.96); border-bottom:1px solid var(--line); box-shadow:0 1px 0 rgba(15,23,42,.04); scrollbar-gutter:stable; scrollbar-width:thin; -webkit-overflow-scrolling:touch; }}
+    .app-nav {{ position:sticky; top:0; z-index:3; display:flex; gap:6px; flex-wrap:wrap; overflow-x:hidden; width:100%; max-width:100vw; min-width:0; padding:12px clamp(18px,4vw,42px); background:rgba(255,255,255,.96); border-bottom:1px solid var(--line); box-shadow:0 1px 0 rgba(15,23,42,.04); }}
     .app-nav::-webkit-scrollbar {{ height:6px; }}
     .app-nav::-webkit-scrollbar-thumb {{ background:#cbd5e1; border-radius:999px; }}
-    .app-nav a {{ color:#0f5b99; font-weight:700; text-decoration:none; padding:8px 10px; border-radius:8px; white-space:nowrap; }}
+    .app-nav a {{ color:#0f5b99; font-weight:700; text-decoration:none; padding:8px 10px; border-radius:8px; white-space:nowrap; min-width:0; }}
     .app-nav a.active {{ background:#e7f3ff; color:#0b4d83; box-shadow:inset 0 0 0 1px #bfdbfe; }}
     section {{ margin:22px clamp(18px,4vw,42px); max-width:100%; }}
     article {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; min-width:0; max-width:100%; overflow:hidden; box-shadow:var(--shadow); }}
@@ -1426,6 +1428,8 @@ def _page(title: str, body: str) -> str:
     [hidden] {{ display:none !important; }}
     @media (max-width:720px) {{
       .hero {{ flex-direction:column; }}
+      .app-nav {{ position:static; gap:5px; padding:10px 12px; }}
+      .app-nav a {{ flex:1 1 calc(33.333% - 6px); padding:8px 6px; text-align:center; white-space:normal; line-height:1.15; overflow-wrap:anywhere; }}
       .toolbar label {{ flex:1 1 100%; }}
       .table-wrap.wide {{ overflow-x:visible; }}
       .table-wrap.wide table {{ min-width:0; border:0; background:transparent; table-layout:auto; }}
@@ -1519,9 +1523,11 @@ def _page(title: str, body: str) -> str:
         }});
       }});
     }}
-    function countBy(items, fn) {{
+    function countBy(items, fn, fallback = 'unknown') {{
       return items.reduce((acc, item) => {{
-        const value = fn(item) || 'unknown';
+        const raw = fn(item);
+        if (!raw && fallback === null) return acc;
+        const value = raw || fallback;
         acc[value] = (acc[value] || 0) + 1;
         return acc;
       }}, {{}});
@@ -1565,7 +1571,7 @@ def _page(title: str, body: str) -> str:
       document.getElementById('explore-result-count').textContent = `${{filtered.length}} tests`;
       document.getElementById('explore-status-chart').innerHTML = barChart(countBy(filtered, (item) => item.status));
       document.getElementById('explore-duration-chart').innerHTML = barChart(countBy(filtered, (item) => item.duration_bucket));
-      document.getElementById('explore-failure-chart').innerHTML = barChart(countBy(filtered, (item) => (item.failure || {{}}).category));
+      document.getElementById('explore-failure-chart').innerHTML = barChart(countBy(filtered, (item) => (item.failure || {{}}).category, null));
       if (view === 'cards') {{
         root.className = 'explore-card-grid';
         root.innerHTML = filtered.map((item) => `<article class="test-card"><span class="status ${{classToken(item.status)}}">${{escapeHtml(item.status)}}</span><h3><a href="${{safeHref(item.detail_href)}}">${{escapeHtml(item.name)}}</a></h3><p class="muted">${{escapeHtml(item.full_name || item.test_id)}}</p><p>${{escapeHtml((item.failure || {{}}).title || '-')}}</p><p class="muted">${{Math.round(num(item.duration_ms))}} ms · ${{escapeHtml(item.profile || item.environment || '-')}}</p></article>`).join('') || '<p class="empty-state">No tests match the filters.</p>';
@@ -1753,8 +1759,18 @@ def _risk_signal_list(risks: list[dict[str, Any]]) -> str:
     return f'<div class="risk-list">{"".join(items)}</div>'
 
 
+def _blocking_failure_count(summary: dict[str, Any]) -> int:
+    return int(
+        summary.get(
+            "blocking_failures",
+            int(summary.get("failed", 0) or 0) + int(summary.get("broken", 0) or 0) + int(summary.get("error", 0) or 0),
+        )
+        or 0
+    )
+
+
 def _readiness_summary(summary: dict[str, Any]) -> dict[str, str]:
-    failed = int(summary.get("failed", 0) or 0) + int(summary.get("broken", 0) or 0)
+    failed = _blocking_failure_count(summary)
     skipped = int(summary.get("skipped", 0) or 0)
     flaky = int(summary.get("flaky", 0) or 0)
     pass_rate = float(summary.get("pass_rate", 0) or 0)
@@ -1900,7 +1916,7 @@ def _counter_list(counter: dict[str, int]) -> str:
 def _failure_summary_list(report: RunReport) -> str:
     summaries: dict[str, dict[str, Any]] = {}
     for test in report.tests:
-        if test.status not in {"failed", "broken"}:
+        if not is_blocking_failure_status(test.status):
             continue
         summary = failure_summary(test)
         bucket = summaries.setdefault(
@@ -1930,7 +1946,7 @@ def _failure_cluster_list(clusters: list[dict[str, Any]]) -> str:
 
 
 def _failure_reason(test: TestCaseReport) -> str:
-    if test.status not in {"failed", "broken"} and not test.failure_message:
+    if not is_blocking_failure_status(test.status) and not test.failure_message:
         return "<pre>No failure message.</pre>"
     summary = failure_summary(test)
     return (
@@ -1940,7 +1956,7 @@ def _failure_reason(test: TestCaseReport) -> str:
 
 
 def _failure_cell(test: TestCaseReport) -> str:
-    if test.status not in {"failed", "broken"} and not test.failure_message:
+    if not is_blocking_failure_status(test.status) and not test.failure_message:
         return ""
     summary = failure_summary(test)
     if test.failure_message:
@@ -1990,12 +2006,12 @@ def _matrix_table(values: dict[str, dict[str, Any]]) -> str:
     rows = "\n".join(
         f'<tr data-filter-row data-search="{_e(name)} {_e(_inline_counts(counts.get("failure_categories", {})))}" data-status="{_e(_matrix_status(counts))}">'
         f"<td>{_e(name)}</td><td>{counts['total']}</td><td>{counts['passed']}</td>"
-        f"<td>{counts['failed'] + counts['broken']}</td><td>{counts['skipped']}</td>"
+        f"<td>{_blocking_failure_count(counts)}</td><td>{counts['skipped']}</td>"
         f"<td>{counts.get('pass_rate', 0)}%</td><td>{_e(_inline_counts(counts.get('failure_categories', {})))}</td></tr>"
         for name, counts in values.items()
     )
     return (
-        '<div class="table-wrap wide matrix-table"><table><thead><tr><th>Name</th><th>Total</th><th>Passed</th><th>Failed</th><th>Skipped</th>'
+        '<div class="table-wrap wide matrix-table"><table><thead><tr><th>Name</th><th>Total</th><th>Passed</th><th>Failures</th><th>Skipped</th>'
         "<th>Pass Rate</th><th>Failure Categories</th></tr></thead><tbody>" + rows + "</tbody></table></div>"
     )
 
@@ -2006,7 +2022,7 @@ def _matrix_heatmap(values: dict[str, dict[str, Any]]) -> str:
     cells = []
     for name, counts in values.items():
         pass_rate = float(counts.get("pass_rate", 0) or 0)
-        failures = counts.get("failed", 0) + counts.get("broken", 0)
+        failures = _blocking_failure_count(counts)
         cells.append(
             f'<div class="heat-cell" data-filter-row data-search="{_e(name)} {_e(_inline_counts(counts.get("failure_categories", {})))}" data-status="{_e(_matrix_status(counts))}">'
             f'<div class="heat-head"><span class="heat-name">{_e(name)}</span><strong class="heat-value">{pass_rate:g}%</strong></div>'
@@ -2175,7 +2191,7 @@ def _trend_bars(points: list[dict[str, Any]]) -> str:
         for point in points[-8:]
     )
     return (
-        '<div class="table-wrap"><table><thead><tr><th>Run</th><th>Pass Rate</th><th>%</th><th>Flaky</th><th>Failed</th></tr></thead><tbody>'
+        '<div class="table-wrap"><table><thead><tr><th>Run</th><th>Pass Rate</th><th>%</th><th>Flaky</th><th>Failures</th></tr></thead><tbody>'
         + rows
         + "</tbody></table></div>"
     )
@@ -2191,7 +2207,7 @@ def _history_comparison_view(comparison: dict[str, Any]) -> str:
             "Current Pass Rate": f"{comparison.get('current_pass_rate', 0)}%",
             "Previous Pass Rate": f"{comparison.get('previous_pass_rate', 0)}%",
             "Pass Rate Change": _format_delta(comparison.get("pass_rate_delta"), suffix="%"),
-            "Failed Change": _format_delta(comparison.get("failed_delta")),
+            "Failure Change": _format_delta(comparison.get("failed_delta")),
             "Flaky Change": _format_delta(comparison.get("flaky_delta")),
             "Duration Change": _format_duration_delta(comparison.get("duration_delta_ms")),
         }
@@ -2555,7 +2571,7 @@ def _test_search(test: TestCaseReport) -> str:
 
 
 def _matrix_status(counts: dict[str, Any]) -> str:
-    if counts.get("failed", 0) or counts.get("broken", 0):
+    if _blocking_failure_count(counts):
         return "failed"
     if counts.get("skipped", 0) and counts.get("passed", 0) == 0:
         return "skipped"

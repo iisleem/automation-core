@@ -155,7 +155,7 @@ def _report_entry(output_path: Path, run_dir: Path, report_data: dict[str, Any])
         report_data.get("resource_efficiency", {}) if isinstance(report_data.get("resource_efficiency"), dict) else {}
     )
     health = report_data.get("run", {}).get("health", {}) if isinstance(report_data.get("run"), dict) else {}
-    failed_total = int(summary.get("failed", 0) or 0) + int(summary.get("broken", 0) or 0)
+    failed_total = _blocking_failure_count(summary)
     run_dir_href = os.path.relpath(run_dir, output_path)
     generated_at = str(summary.get("latest_run") or "")
     entry = {
@@ -175,6 +175,8 @@ def _report_entry(output_path: Path, run_dir: Path, report_data: dict[str, Any])
         "passed": int(summary.get("passed", 0) or 0),
         "failed": int(summary.get("failed", 0) or 0),
         "broken": int(summary.get("broken", 0) or 0),
+        "error": int(summary.get("error", 0) or 0),
+        "blocking_failures": failed_total,
         "failed_total": failed_total,
         "skipped": int(summary.get("skipped", 0) or 0),
         "flaky": int(summary.get("flaky", 0) or 0),
@@ -632,7 +634,7 @@ function renderGallery() {{
 }}
 function reportCard(item) {{
   const scope = (item.profiles || []).join(', ') || (item.environments || []).join(', ') || '-';
-  return `<article class="report-card"><div class="card-head"><div><span class="status ${{statusClass(item.status)}}">${{escapeHtml(item.status)}}</span><h3><a href="${{safeHref(item.entry_href)}}">${{escapeHtml(item.run_id || 'run')}}</a></h3><p class="muted">${{escapeHtml(item.generated_display)}} · ${{escapeHtml(item.framework || '-')}}</p></div><div class="score-line"><strong>${{escapeHtml(qualityScore(item))}}</strong><span class="status ${{statusClass(item.risk_level)}}">${{escapeHtml(item.risk_level || 'low')}}</span></div></div><div class="mini-metrics"><span><strong>${{num(item.total)}}</strong><br>Tests</span><span><strong>${{num(item.failed_total)}}</strong><br>Failed</span><span><strong>${{num(item.flaky)}}</strong><br>Flaky</span><span><strong>${{escapeHtml(item.duration_display)}}</strong><br>Duration</span></div><p class="muted">${{escapeHtml(item.project_name || '-')}} · ${{escapeHtml(scope)}}</p><p class="muted">New ${{num(item.new_failure_count)}} · Known ${{num(item.known_failure_count)}} · Resolved ${{num(item.resolved_failure_count)}} · Pass delta ${{escapeHtml(deltaLabel(item.pass_rate_delta, '%'))}}</p><div class="card-actions"><a class="button" href="${{safeHref(item.entry_href)}}">Dashboard</a><a class="button" href="${{safeHref(item.executive_href)}}">Executive</a><a class="button" href="${{safeHref(item.compare_href)}}">Compare</a><a class="button" href="${{safeHref(item.tests_href)}}">Tests</a><a class="button" href="${{safeHref(item.share_href)}}">Share</a></div></article>`;
+  return `<article class="report-card"><div class="card-head"><div><span class="status ${{statusClass(item.status)}}">${{escapeHtml(item.status)}}</span><h3><a href="${{safeHref(item.entry_href)}}">${{escapeHtml(item.run_id || 'run')}}</a></h3><p class="muted">${{escapeHtml(item.generated_display)}} · ${{escapeHtml(item.framework || '-')}}</p></div><div class="score-line"><strong>${{escapeHtml(qualityScore(item))}}</strong><span class="status ${{statusClass(item.risk_level)}}">${{escapeHtml(item.risk_level || 'low')}}</span></div></div><div class="mini-metrics"><span><strong>${{num(item.total)}}</strong><br>Tests</span><span><strong>${{num(item.failed_total)}}</strong><br>Failures</span><span><strong>${{num(item.flaky)}}</strong><br>Flaky</span><span><strong>${{escapeHtml(item.duration_display)}}</strong><br>Duration</span></div><p class="muted">${{escapeHtml(item.project_name || '-')}} · ${{escapeHtml(scope)}}</p><p class="muted">New ${{num(item.new_failure_count)}} · Known ${{num(item.known_failure_count)}} · Resolved ${{num(item.resolved_failure_count)}} · Pass delta ${{escapeHtml(deltaLabel(item.pass_rate_delta, '%'))}}</p><div class="card-actions"><a class="button" href="${{safeHref(item.entry_href)}}">Dashboard</a><a class="button" href="${{safeHref(item.executive_href)}}">Executive</a><a class="button" href="${{safeHref(item.compare_href)}}">Compare</a><a class="button" href="${{safeHref(item.tests_href)}}">Tests</a><a class="button" href="${{safeHref(item.share_href)}}">Share</a></div></article>`;
 }}
 function reportTableRow(item) {{
   return `<tr><td><span class="status ${{statusClass(item.status)}}">${{escapeHtml(item.status)}}</span></td><td>${{escapeHtml(item.run_id)}}</td><td>${{escapeHtml(item.framework || '-')}}</td><td>${{escapeHtml(item.generated_display)}}</td><td>${{num(item.total)}}</td><td>${{escapeHtml(item.pass_rate)}}%</td><td>${{escapeHtml(qualityScore(item))}} · <span class="status ${{statusClass(item.risk_level)}}">${{escapeHtml(item.risk_level || 'low')}}</span></td><td>${{num(item.failed_total)}} failed · ${{num(item.flaky)}} flaky · ${{num(item.new_failure_count)}} new · ${{num(item.artifact_count)}} artifacts</td><td><a href="${{safeHref(item.entry_href)}}">Open</a> · <a href="${{safeHref(item.compare_href)}}">Compare</a></td></tr>`;
@@ -684,6 +686,16 @@ def _summary_from_report_data(report_data: dict[str, Any]) -> dict[str, Any]:
     if isinstance(run, dict) and isinstance(run.get("summary"), dict):
         return run["summary"]
     return {}
+
+
+def _blocking_failure_count(summary: dict[str, Any]) -> int:
+    return int(
+        summary.get(
+            "blocking_failures",
+            int(summary.get("failed", 0) or 0) + int(summary.get("broken", 0) or 0) + int(summary.get("error", 0) or 0),
+        )
+        or 0
+    )
 
 
 def _run_folder_name(run_id: str, generated_at: datetime | str | None) -> str:

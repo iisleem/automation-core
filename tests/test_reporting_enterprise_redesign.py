@@ -292,3 +292,68 @@ def test_report_client_rendering_does_not_execute_malicious_values_in_browser(tm
         assert page.locator("#gallery-count").inner_text() == "1 reports"
         assert page.locator(".report-card").count() == 1
         browser.close()
+
+
+def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    output_dir = tmp_path / "report"
+    report = RunReport(
+        run_id="narrow-nav-overflow-check",
+        project_name="automation-core",
+        framework="pytest",
+        generated_at=datetime(2026, 2, 5, tzinfo=UTC),
+        matrix_dimensions=("domain",),
+        tests=[
+            TestCaseReport(
+                id="long-name",
+                name="test_with_a_long_name_to_keep_the_page_representative",
+                full_name="tests.reports.test_with_a_long_name_to_keep_the_page_representative",
+                status="error",
+                domain="web",
+                failure_message="setup error",
+            ),
+            TestCaseReport(id="passed", name="test_passed", status="passed", domain="web"),
+        ],
+    )
+
+    generate_reporting_product(report, output_dir)
+
+    pages = [
+        output_dir / "index.html",
+        output_dir / "executive.html",
+        output_dir / "quality.html",
+        output_dir / "compare.html",
+        output_dir / "explore.html",
+        output_dir / "timeline.html",
+        output_dir / "flaky.html",
+        output_dir / "matrix.html",
+        output_dir / "history.html",
+        output_dir / "share.html",
+        output_dir / "print-summary.html",
+        next((output_dir / "tests").glob("*.html")),
+    ]
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        page = browser.new_page(viewport={"width": 390, "height": 900})
+        for path in pages:
+            page.goto("file://" + quote(str(path)), wait_until="load")
+            page.wait_for_timeout(100)
+            overflow = page.evaluate(
+                """() => {
+                  const viewportWidth = document.documentElement.clientWidth;
+                  const documentOverflow = Math.max(
+                    0,
+                    Math.ceil(Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - viewportWidth)
+                  );
+                  const navOffenders = Array.from(document.querySelectorAll('.app-nav a'))
+                    .filter((node) => {
+                      const rect = node.getBoundingClientRect();
+                      return rect.left < -1 || rect.right > viewportWidth + 1;
+                    })
+                    .map((node) => node.textContent.trim());
+                  return { documentOverflow, navOffenders };
+                }"""
+            )
+            assert overflow == {"documentOverflow": 0, "navOffenders": []}
+        browser.close()
