@@ -1358,13 +1358,15 @@ def _page(title: str, body: str) -> str:
     .result-strip {{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; }}
     .table-wrap {{ width:100%; max-width:100%; overflow-x:auto; border-radius:8px; }}
     .table-wrap.wide table {{ min-width:720px; table-layout:auto; }}
+    .grid.two .table-wrap.wide table {{ min-width:0; table-layout:fixed; }}
     .compare-table table {{ min-width:520px; }}
     table {{ border-collapse:collapse; width:100%; min-width:0; background:#fff; border:1px solid var(--line); table-layout:fixed; }}
     th,td {{ border-bottom:1px solid #e9edf2; padding:10px; text-align:left; vertical-align:top; overflow-wrap:anywhere; word-break:break-word; min-width:0; }}
     th {{ background:#eef2f6; color:#263345; }}
     .kv-table th {{ width:34%; max-width:180px; }}
     .kv-table td {{ width:66%; }}
-    pre {{ white-space:pre-wrap; overflow:auto; background:#f4f6f8; border:1px solid #e1e6ed; border-radius:6px; padding:10px; max-width:100%; }}
+    pre {{ white-space:pre-wrap; overflow:auto; overflow-wrap:anywhere; word-break:break-word; background:#f4f6f8; border:1px solid #e1e6ed; border-radius:6px; padding:10px; max-width:100%; }}
+    pre span[data-line],code {{ display:block; max-width:100%; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; }}
     details {{ margin-top:10px; }}
     summary {{ cursor:pointer; color:#0f5b99; font-weight:700; }}
     .status {{ display:inline-block; padding:5px 9px; border-radius:999px; font-size:12px; font-weight:700; text-transform:uppercase; white-space:nowrap; line-height:1; }}

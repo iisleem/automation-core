@@ -7,12 +7,15 @@ from urllib.parse import quote
 import pytest
 
 from automation_core.reporting import (
+    Artifact,
     ReportInsightConfig,
     RetryAttempt,
     RiskThresholds,
     RunReport,
     TestCaseReport,
     build_report_data,
+    generate_browser_matrix_dashboard,
+    generate_environment_matrix_dashboard,
     generate_report_portfolio,
     generate_reporting_product,
     prepare_timestamped_report_dir,
@@ -297,6 +300,12 @@ def test_report_client_rendering_does_not_execute_malicious_values_in_browser(tm
 def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     output_dir = tmp_path / "report"
+    log_path = tmp_path / "long-detail.log"
+    log_path.write_text(
+        "2026-02-05 10:10:10,001 | INFO | framework | "
+        "tests.smoke.test_login::test_login_with_a_very_long_context_value_" + ("segment_" * 36),
+        encoding="utf-8",
+    )
     report = RunReport(
         run_id="narrow-nav-overflow-check",
         project_name="automation-core",
@@ -310,7 +319,8 @@ def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
                 full_name="tests.reports.test_with_a_long_name_to_keep_the_page_representative",
                 status="error",
                 domain="web",
-                failure_message="setup error",
+                failure_message="setup error " + ("longfailuretoken" * 20),
+                artifacts=[Artifact(name="long detail log", artifact_type="log", path=str(log_path))],
             ),
             TestCaseReport(id="passed", name="test_passed", status="passed", domain="web"),
         ],
@@ -335,8 +345,95 @@ def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
+        for viewport in [{"width": 1440, "height": 1000}, {"width": 390, "height": 900}]:
+            page = browser.new_page(viewport=viewport)
+            for path in pages:
+                page.goto("file://" + quote(str(path)), wait_until="load")
+                page.wait_for_timeout(100)
+                overflow = page.evaluate(
+                    """() => {
+                      const viewportWidth = document.documentElement.clientWidth;
+                      const documentOverflow = Math.max(
+                        0,
+                        Math.ceil(Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - viewportWidth)
+                      );
+                      const offenders = Array.from(document.body.querySelectorAll('*'))
+                        .filter((node) => {
+                          const style = getComputedStyle(node);
+                          if (style.display === 'none' || style.visibility === 'hidden') return false;
+                          const rect = node.getBoundingClientRect();
+                          if (rect.width === 0 || rect.height === 0) return false;
+                          return rect.left < -1 || rect.right > viewportWidth + 1;
+                        })
+                        .map((node) => ({
+                          tag: node.tagName,
+                          className: node.className || '',
+                          text: (node.textContent || '').trim().slice(0, 80),
+                          left: Math.round(node.getBoundingClientRect().left),
+                          right: Math.round(node.getBoundingClientRect().right),
+                        }))
+                        .slice(0, 10);
+                      const navOffenders = Array.from(document.querySelectorAll('.app-nav a'))
+                        .filter((node) => {
+                          const rect = node.getBoundingClientRect();
+                          return rect.left < -1 || rect.right > viewportWidth + 1;
+                        })
+                        .map((node) => node.textContent.trim());
+                      return { documentOverflow, offenders, navOffenders };
+                    }"""
+                )
+                assert overflow == {"documentOverflow": 0, "offenders": [], "navOffenders": []}
+            page.close()
+        browser.close()
+
+
+def test_legacy_matrix_dashboards_do_not_create_document_overflow_on_narrow_viewport(tmp_path):
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    browser_dashboard = generate_browser_matrix_dashboard(
+        [
+            {
+                "browser": "chromium-with-a-very-long-channel-name-for-mobile-overflow-check",
+                "summary": {
+                    "status": "passed",
+                    "total": 12,
+                    "passed": 12,
+                    "failed": 0,
+                    "broken": 0,
+                    "skipped": 0,
+                    "duration_ms": 45_000,
+                    "pass_rate": 100,
+                },
+                "report_href": "reports/chromium/index.html",
+                "log_href": "logs/chromium-execution.log",
+            }
+        ],
+        tmp_path / "browser-matrix",
+    )
+    environment_dashboard = generate_environment_matrix_dashboard(
+        [
+            {
+                "env": "qa-environment-with-a-very-long-readable-name-for-mobile-overflow-check",
+                "summary": {
+                    "status": "failed",
+                    "total": 8,
+                    "passed": 7,
+                    "failed": 1,
+                    "broken": 0,
+                    "skipped": 0,
+                    "duration_ms": 12_500,
+                    "pass_rate": 87.5,
+                },
+                "report_href": "reports/qa/index.html",
+                "log_href": "logs/qa-execution.log",
+            }
+        ],
+        tmp_path / "environment-matrix",
+    )
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
         page = browser.new_page(viewport={"width": 390, "height": 900})
-        for path in pages:
+        for path in [browser_dashboard, environment_dashboard]:
             page.goto("file://" + quote(str(path)), wait_until="load")
             page.wait_for_timeout(100)
             overflow = page.evaluate(
@@ -346,14 +443,17 @@ def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
                     0,
                     Math.ceil(Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - viewportWidth)
                   );
-                  const navOffenders = Array.from(document.querySelectorAll('.app-nav a'))
-                    .filter((node) => {
-                      const rect = node.getBoundingClientRect();
-                      return rect.left < -1 || rect.right > viewportWidth + 1;
-                    })
-                    .map((node) => node.textContent.trim());
-                  return { documentOverflow, navOffenders };
+                  const wrappers = Array.from(document.querySelectorAll('.table-wrap')).map((node) => {
+                    const rect = node.getBoundingClientRect();
+                    return {
+                      contained: rect.left >= -1 && rect.right <= viewportWidth + 1,
+                      scrollable: node.scrollWidth >= node.clientWidth,
+                    };
+                  });
+                  return { documentOverflow, wrappers };
                 }"""
             )
-            assert overflow == {"documentOverflow": 0, "navOffenders": []}
+            assert overflow["documentOverflow"] == 0
+            assert overflow["wrappers"]
+            assert all(wrapper["contained"] for wrapper in overflow["wrappers"])
         browser.close()

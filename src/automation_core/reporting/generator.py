@@ -236,28 +236,39 @@ def _render_matrix_html(
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{escaped_title}</title>
   <style>
+    * {{ box-sizing: border-box; }}
+    html, body {{ max-width: 100%; overflow-x: hidden; }}
     body {{ font-family: Arial, sans-serif; margin: 0; color: #172033; background: #f6f7f9; }}
-    header {{ background: #102033; color: #ffffff; padding: 28px 36px; }}
-    h1 {{ margin: 0 0 8px; }}
-    main {{ padding: 28px 36px; }}
+    header {{ background: #102033; color: #ffffff; padding: 28px clamp(18px, 4vw, 36px); }}
+    h1 {{ margin: 0 0 8px; overflow-wrap: anywhere; }}
+    p, li, h2 {{ overflow-wrap: anywhere; }}
+    main {{ padding: 28px clamp(18px, 4vw, 36px); max-width: 100%; }}
     .summary {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 24px; }}
-    .metric {{ background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; padding: 16px; }}
+    .metric {{ background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; padding: 16px; min-width: 0; }}
     .metric strong {{ display: block; font-size: 28px; margin-bottom: 4px; }}
     .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin: 24px 0; }}
-    .card {{ background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; padding: 18px; }}
+    .card {{ background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; padding: 18px; min-width: 0; overflow: hidden; }}
     .status {{ display: inline-block; padding: 4px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; text-transform: uppercase; }}
     .passed {{ color: #047857; background: #dff7ed; }}
     .failed {{ color: #b91c1c; background: #fee2e2; }}
     .unknown {{ color: #6b7280; background: #e5e7eb; }}
     .bar {{ height: 9px; background: #e5e7eb; border-radius: 999px; overflow: hidden; margin: 12px 0; }}
     .bar span {{ display: block; height: 100%; background: #0f766e; }}
+    .table-wrap {{ width: 100%; max-width: 100%; overflow-x: auto; border-radius: 8px; }}
     table {{ border-collapse: collapse; width: 100%; background: #ffffff; border: 1px solid #dde3ea; }}
-    th, td {{ border-bottom: 1px solid #e5e7eb; padding: 11px; text-align: left; }}
+    th, td {{ border-bottom: 1px solid #e5e7eb; padding: 11px; text-align: left; overflow-wrap: anywhere; word-break: break-word; }}
     th {{ background: #eef2f6; }}
-    a {{ color: #0f5b99; font-weight: 700; }}
+    a {{ color: #0f5b99; font-weight: 700; overflow-wrap: anywhere; word-break: break-word; }}
     .section {{ margin-top: 28px; }}
+    @media (max-width: 640px) {{
+      main {{ padding: 20px 16px; }}
+      header {{ padding: 22px 16px; }}
+      .cards {{ grid-template-columns: 1fr; }}
+      .table-wrap table {{ min-width: 760px; }}
+    }}
   </style>
 </head>
 <body>
@@ -279,6 +290,7 @@ def _render_matrix_html(
     </section>
     <section class="section">
       <h2>{escaped_dimension_label} Results</h2>
+      <div class="table-wrap">
       <table>
         <thead>
           <tr>
@@ -299,6 +311,7 @@ def _render_matrix_html(
           {rows}
         </tbody>
       </table>
+      </div>
     </section>
     <section class="section">
       <h2>Attention Needed</h2>
