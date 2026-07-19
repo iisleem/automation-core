@@ -6,8 +6,7 @@ from typing import Any
 
 from automation_core.reporting.models import RunReport
 from automation_core.reporting.quality import QualityGateConfig, evaluate_quality_gates
-
-FAILED_STATUSES = {"failed", "broken"}
+from automation_core.reporting.status import PASSED_STATUS, is_blocking_failure_status, normalized_status
 
 
 @dataclass(frozen=True)
@@ -143,7 +142,7 @@ def _quality_score(
 ) -> dict[str, Any]:
     total = int(summary.get("total", 0) or 0)
     pass_rate = float(summary.get("pass_rate", 0) or 0)
-    failed_broken = int(summary.get("failed", 0) or 0) + int(summary.get("broken", 0) or 0)
+    failed_broken = _blocking_failure_count(summary)
     flaky = int(summary.get("flaky", 0) or 0)
     test_retries = int(signals.get("test_retry_count", 0) or 0)
     action_retries = int(signals.get("action_retry_count", 0) or 0)
@@ -182,7 +181,7 @@ def _risk_signal(
     config: ReportInsightConfig,
 ) -> dict[str, Any]:
     thresholds = config.risk_thresholds
-    failed_broken = int(summary.get("failed", 0) or 0) + int(summary.get("broken", 0) or 0)
+    failed_broken = _blocking_failure_count(summary)
     flaky = int(summary.get("flaky", 0) or 0)
     retries = int(signals.get("test_retry_count", 0) or 0) + int(signals.get("action_retry_count", 0) or 0)
     new_failures = int(failure_transitions.get("counts", {}).get("new", 0) or 0)
@@ -192,12 +191,12 @@ def _risk_signal(
     severe_categories = {
         item.get("failure", {}).get("category", "")
         for item in test_index
-        if item.get("status") in FAILED_STATUSES
+        if is_blocking_failure_status(item.get("status"))
         and item.get("failure", {}).get("category", "")
         in {"appium_server_unreachable", "auth_config_issue", "api_contract_mismatch"}
     }
     reasons: list[dict[str, Any]] = []
-    _add_risk_reason(reasons, failed_broken, thresholds.medium_failed, thresholds.high_failed, "Failed or broken tests")
+    _add_risk_reason(reasons, failed_broken, thresholds.medium_failed, thresholds.high_failed, "Blocking failures")
     _add_risk_reason(reasons, flaky, thresholds.medium_flaky, thresholds.high_flaky, "Flaky signals")
     _add_risk_reason(
         reasons,
@@ -303,9 +302,9 @@ def _recovery(history_entries: list[dict[str, Any]], config: ReportInsightConfig
             if not identity or run_time is None:
                 continue
             status = str(item.get("status", "unknown"))
-            if status in FAILED_STATUSES and identity not in open_failures:
+            if is_blocking_failure_status(status) and identity not in open_failures:
                 open_failures[identity] = {"run_id": entry.get("run_id", ""), "time": run_time, "status": status}
-            elif status == "passed" and identity in open_failures:
+            elif normalized_status(status) == PASSED_STATUS and identity in open_failures:
                 started = open_failures.pop(identity)
                 duration_ms = max(0, (run_time - started["time"]).total_seconds() * 1000)
                 recovered.append(
@@ -383,6 +382,16 @@ def _add_risk_reason(reasons: list[dict[str, Any]], value: int, medium: int, hig
         reasons.append({"level": "high", "label": label, "value": value, "threshold": high})
     elif value >= medium:
         reasons.append({"level": "medium", "label": label, "value": value, "threshold": medium})
+
+
+def _blocking_failure_count(summary: dict[str, Any]) -> int:
+    return int(
+        summary.get(
+            "blocking_failures",
+            int(summary.get("failed", 0) or 0) + int(summary.get("broken", 0) or 0) + int(summary.get("error", 0) or 0),
+        )
+        or 0
+    )
 
 
 def _quality_grade(score: float | None) -> str:

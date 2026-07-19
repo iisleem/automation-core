@@ -5,9 +5,9 @@ from typing import Any
 
 from automation_core.reporting.analysis import classify_failure, flaky_analysis, summarize_run
 from automation_core.reporting.models import RunReport
+from automation_core.reporting.status import is_blocking_failure_status
 from automation_core.reporting.traversal import collect_action_retries
 
-FAILED_STATUSES = {"failed", "broken"}
 SUPPORTED_OPERATORS = {"max", "min"}
 SUPPORTED_SEVERITIES = {"failed", "warning"}
 SUPPORTED_METRICS = {
@@ -16,6 +16,7 @@ SUPPORTED_METRICS = {
     "pass_rate",
     "failed",
     "broken",
+    "error",
     "failed_broken",
     "skipped",
     "flaky",
@@ -69,7 +70,7 @@ class QualityGateConfig:
         for field_name, metric, label in (
             ("max_failed", "failed", "Maximum failed"),
             ("max_broken", "broken", "Maximum broken"),
-            ("max_failed_broken", "failed_broken", "Maximum failed or broken"),
+            ("max_failed_broken", "failed_broken", "Maximum blocking failures"),
             ("max_skipped", "skipped", "Maximum skipped"),
             ("max_flaky", "flaky", "Maximum flaky"),
             ("max_test_retries", "test_retries", "Maximum test retries"),
@@ -229,16 +230,18 @@ def _quality_metrics(report: RunReport) -> dict[str, Any]:
     summary = summarize_run(report)
     categories: dict[str, int] = {}
     for test in report.tests:
-        if test.status in FAILED_STATUSES:
+        if is_blocking_failure_status(test.status):
             category = classify_failure(test)
             categories[category] = categories.get(category, 0) + 1
+    blocking_failures = summary.get("blocking_failures", summary["failed"] + summary["broken"])
     return {
         "total": summary["total"],
         "passed": summary["passed"],
         "pass_rate": summary["pass_rate"],
         "failed": summary["failed"],
         "broken": summary["broken"],
-        "failed_broken": summary["failed"] + summary["broken"],
+        "error": summary.get("error", 0),
+        "failed_broken": blocking_failures,
         "skipped": summary["skipped"],
         "flaky": len(flaky_analysis(report)),
         "test_retries": sum(len(test.retries) for test in report.tests),

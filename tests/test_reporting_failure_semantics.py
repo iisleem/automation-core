@@ -65,3 +65,42 @@ def test_real_failures_keep_smart_default_classification_without_polluting_passe
     assert by_id["error"]["failure"]["category"] == "unknown"
     assert sidecar["charts"]["failure_categories"] == {"unknown": 3}
     assert sidecar["aggregates"]["filter_options"]["failure_category"] == ["unknown"]
+
+
+def test_error_status_is_blocking_across_report_semantics(tmp_path):
+    report = RunReport(
+        run_id="error-mixed",
+        matrix_dimensions=("domain",),
+        tests=[
+            TestCaseReport(id="p", name="pass", status="passed", domain="web"),
+            TestCaseReport(id="e", name="error", status="error", domain="web"),
+        ],
+    )
+
+    sidecar = build_report_data(report)
+    failed_gate = next(
+        result for result in sidecar["default_gate_status"]["results"] if result["metric"] == "failed_broken"
+    )
+
+    assert sidecar["run"]["summary"]["status"] == "failed"
+    assert sidecar["run"]["summary"]["error"] == 1
+    assert sidecar["run"]["summary"]["blocking_failures"] == 1
+    assert sidecar["aggregates"]["status_distribution"]["failed_broken"] == 1
+    assert sidecar["charts"]["failure_categories"] == {"unknown": 1}
+    assert sidecar["risk_signal"]["level"] != "low"
+    assert failed_gate["status"] == "failed"
+    assert failed_gate["actual"] == 1
+    assert sidecar["matrix"]["domain"]["web"]["error"] == 1
+    assert sidecar["matrix"]["domain"]["web"]["failure_categories"] == {"unknown": 1}
+    assert sidecar["test_index"][0]["failure"] == EMPTY_FAILURE
+    assert sidecar["test_index"][1]["failure"]["title"] == "Unknown failure"
+
+    generate_reporting_product(report, tmp_path / "report")
+    output_sidecar = json.loads((tmp_path / "report" / "report-data.json").read_text(encoding="utf-8"))
+    output_failed_gate = next(
+        result for result in output_sidecar["default_gate_status"]["results"] if result["metric"] == "failed_broken"
+    )
+
+    assert output_sidecar["run"]["summary"]["status"] == "failed"
+    assert output_failed_gate["actual"] == 1
+    assert output_failed_gate["status"] == "failed"

@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-STATUS_ORDER = {"failed": 0, "broken": 1, "skipped": 2, "passed": 3}
+STATUS_ORDER = {"failed": 0, "broken": 1, "error": 2, "skipped": 3, "passed": 4}
 
 
 def generate_html_report(
@@ -52,7 +52,7 @@ def summarize_results(tests: list[dict[str, Any]]) -> dict[str, Any]:
     counts = {status: sum(1 for test in tests if test["status"] == status) for status in STATUS_ORDER}
     total = len(tests)
     passed = counts.get("passed", 0)
-    failed = counts.get("failed", 0) + counts.get("broken", 0)
+    failed = _blocking_failure_count(counts)
     duration_ms = sum(test["duration_ms"] for test in tests)
     pass_rate = round((passed / total) * 100, 2) if total else 0
     status = "passed" if total and failed == 0 else "failed"
@@ -64,6 +64,8 @@ def summarize_results(tests: list[dict[str, Any]]) -> dict[str, Any]:
         "passed": passed,
         "failed": counts.get("failed", 0),
         "broken": counts.get("broken", 0),
+        "error": counts.get("error", 0),
+        "blocking_failures": failed,
         "skipped": counts.get("skipped", 0),
         "duration_ms": duration_ms,
         "pass_rate": pass_rate,
@@ -268,7 +270,7 @@ def _render_matrix_html(
       <div class="metric"><strong>{totals[dimension_count_key]}</strong>{html.escape(dimension_label)}s</div>
       <div class="metric"><strong>{totals["total"]}</strong>Total Tests</div>
       <div class="metric"><strong>{totals["passed"]}</strong>Passed</div>
-      <div class="metric"><strong>{totals["failed"] + totals["broken"]}</strong>Failed/Broken</div>
+      <div class="metric"><strong>{_blocking_failure_count(totals)}</strong>Failures</div>
       <div class="metric"><strong>{totals["pass_rate"]}%</strong>Pass Rate</div>
       <div class="metric"><strong>{_format_duration(totals["duration_ms"])}</strong>Total Duration</div>
     </section>
@@ -316,13 +318,15 @@ def _matrix_totals(runs: list[dict[str, Any]], dimension_label: str) -> dict[str
         "passed": 0,
         "failed": 0,
         "broken": 0,
+        "error": 0,
         "skipped": 0,
         "duration_ms": 0,
     }
     for run in runs:
         summary = run["summary"]
-        for key in ("total", "passed", "failed", "broken", "skipped", "duration_ms"):
-            totals[key] += summary[key]
+        for key in ("total", "passed", "failed", "broken", "error", "skipped", "duration_ms"):
+            totals[key] += summary.get(key, 0)
+    totals["blocking_failures"] = _blocking_failure_count(totals)
     totals["pass_rate"] = round((totals["passed"] / totals["total"]) * 100, 2) if totals["total"] else 0
     return totals
 
@@ -338,7 +342,7 @@ def _render_matrix_card(run: dict[str, Any], dimension_key: str, dimension_label
   <span class="status {status}">{status}</span>
   <div class="bar"><span style="width: {summary["pass_rate"]}%"></span></div>
   <p><strong>{summary["pass_rate"]}%</strong> pass rate across {summary["total"]} tests.</p>
-  <p>{summary["passed"]} passed, {summary["failed"] + summary["broken"]} failed/broken, {summary["skipped"]} skipped.</p>
+  <p>{summary["passed"]} passed, {_blocking_failure_count(summary)} failures, {summary["skipped"]} skipped.</p>
   <p>Duration: {_format_duration(summary["duration_ms"])}</p>
   <a href="{report_href}">Open {dimension_value} report</a>
   <br>
@@ -369,12 +373,22 @@ def _render_matrix_row(run: dict[str, Any], dimension_key: str) -> str:
 
 def _render_failure_item(run: dict[str, Any], dimension_key: str) -> str:
     summary = run["summary"]
-    if summary["failed"] + summary["broken"] == 0:
+    if _blocking_failure_count(summary) == 0:
         return ""
     dimension_value = html.escape(str(run[dimension_key]))
     report_href = html.escape(run["report_href"])
-    count = summary["failed"] + summary["broken"]
-    return f'<li>{dimension_value}: {count} failed/broken tests. <a href="{report_href}">Open report</a></li>'
+    count = _blocking_failure_count(summary)
+    return f'<li>{dimension_value}: {count} failing tests. <a href="{report_href}">Open report</a></li>'
+
+
+def _blocking_failure_count(summary: dict[str, Any]) -> int:
+    return int(
+        summary.get(
+            "blocking_failures",
+            int(summary.get("failed", 0) or 0) + int(summary.get("broken", 0) or 0) + int(summary.get("error", 0) or 0),
+        )
+        or 0
+    )
 
 
 def _format_duration(duration_ms: int) -> str:

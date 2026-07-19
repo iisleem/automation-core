@@ -16,9 +16,9 @@ from automation_core.reporting.insights import ReportInsightConfig, build_enterp
 from automation_core.reporting.models import Artifact, RunReport, TestCaseReport, to_jsonable
 from automation_core.reporting.quality import QualityGate, QualityGateConfig, evaluate_quality_gates
 from automation_core.reporting.redaction import redact_payload, redact_report, redaction_manifest
+from automation_core.reporting.status import is_blocking_failure_status, normalized_status
 from automation_core.reporting.traversal import collect_action_retries, collect_test_artifacts, iter_steps
 
-FAILED_STATUSES = {"failed", "broken", "error"}
 EMPTY_FAILURE_SUMMARY = {"category": "", "title": "", "detail": ""}
 
 
@@ -216,7 +216,7 @@ def _failure_summary_for_index(test: TestCaseReport) -> dict[str, str]:
 
 
 def _has_failure_details(test: TestCaseReport) -> bool:
-    if _is_failure_status(test.status):
+    if is_blocking_failure_status(test.status):
         return True
     if test.failure_message or test.failure_trace:
         return True
@@ -232,7 +232,7 @@ def _aggregates(report: RunReport, test_index: list[dict[str, Any]]) -> dict[str
     failure_counter = Counter(
         item["failure"]["category"]
         for item in test_index
-        if _is_failure_status(item.get("status")) and item.get("failure", {}).get("category")
+        if is_blocking_failure_status(item.get("status")) and item.get("failure", {}).get("category")
     )
     artifact_types: Counter[str] = Counter()
     for item in test_index:
@@ -257,7 +257,7 @@ def _aggregates(report: RunReport, test_index: list[dict[str, Any]]) -> dict[str
 
 def _risk_signals(report: RunReport, test_index: list[dict[str, Any]]) -> list[dict[str, Any]]:
     risks: list[dict[str, Any]] = []
-    failed = [item for item in test_index if _is_failure_status(item["status"])]
+    failed = [item for item in test_index if is_blocking_failure_status(item["status"])]
     flaky = [item for item in test_index if item["flaky_categories"]]
     high_retries = [item for item in test_index if item["retry_count"] + item["action_retry_count"] >= 3]
     slow = sorted(test_index, key=lambda item: item["duration_ms"], reverse=True)[:3]
@@ -283,7 +283,7 @@ def _risk_signals(report: RunReport, test_index: list[dict[str, Any]]) -> list[d
         risks.append(
             {
                 "severity": "medium",
-                "title": "Failed tests without artifacts",
+                "title": "Failing tests without artifacts",
                 "count": len(missing_artifacts),
                 "tests": _risk_tests(missing_artifacts),
             }
@@ -295,7 +295,7 @@ def _risk_signals(report: RunReport, test_index: list[dict[str, Any]]) -> list[d
 
 def _run_health(summary: dict[str, Any], history_entries: list[dict[str, Any]]) -> dict[str, Any]:
     previous = _previous_history_entry(summary, history_entries)
-    failed_total = summary.get("failed", 0) + summary.get("broken", 0)
+    failed_total = _blocking_failure_count(summary)
     health = {
         "pass_rate": summary.get("pass_rate", 0),
         "failed_total": failed_total,
@@ -311,7 +311,7 @@ def _run_health(summary: dict[str, Any], history_entries: list[dict[str, Any]]) 
         return health
 
     health["pass_rate_delta"] = _numeric_delta(summary.get("pass_rate", 0), previous.get("pass_rate", 0))
-    health["failed_delta"] = _numeric_delta(failed_total, previous.get("failed", 0) + previous.get("broken", 0))
+    health["failed_delta"] = _numeric_delta(failed_total, _history_blocking_failure_count(previous))
     health["flaky_delta"] = _numeric_delta(summary.get("flaky", 0), previous.get("flaky", 0))
     health["duration_delta_ms"] = _numeric_delta(summary.get("duration_ms", 0), previous.get("duration_ms", 0))
     return health
@@ -328,8 +328,8 @@ def _history_comparison(summary: dict[str, Any], history_entries: list[dict[str,
         "previous_pass_rate": previous.get("pass_rate", 0),
         "pass_rate_delta": _numeric_delta(summary.get("pass_rate", 0), previous.get("pass_rate", 0)),
         "failed_delta": _numeric_delta(
-            summary.get("failed", 0) + summary.get("broken", 0),
-            previous.get("failed", 0) + previous.get("broken", 0),
+            _blocking_failure_count(summary),
+            _history_blocking_failure_count(previous),
         ),
         "flaky_delta": _numeric_delta(summary.get("flaky", 0), previous.get("flaky", 0)),
         "duration_delta_ms": _numeric_delta(summary.get("duration_ms", 0), previous.get("duration_ms", 0)),
@@ -356,7 +356,9 @@ def _failure_transitions(
         _test_identity_from_index(item): item for item in test_index if _test_identity_from_index(item)
     }
     current_failed = {
-        identity: item for identity, item in current_by_identity.items() if _is_failure_status(item.get("status"))
+        identity: item
+        for identity, item in current_by_identity.items()
+        if is_blocking_failure_status(item.get("status"))
     }
     previous_failed = {
         _test_identity_from_history(item): item
@@ -409,8 +411,8 @@ def _run_comparison(
         "passed": (summary.get("passed", 0), previous.get("passed", 0)),
         "pass_rate": (summary.get("pass_rate", 0), previous.get("pass_rate", 0)),
         "failed_broken": (
-            summary.get("failed", 0) + summary.get("broken", 0),
-            previous.get("failed", 0) + previous.get("broken", 0),
+            _blocking_failure_count(summary),
+            _history_blocking_failure_count(previous),
         ),
         "skipped": (summary.get("skipped", 0), previous.get("skipped", 0)),
         "flaky": (summary.get("flaky", 0), previous.get("flaky", 0)),
@@ -518,10 +520,30 @@ def _numeric_delta(current: Any, previous: Any) -> float:
     return round(float(current or 0) - float(previous or 0), 2)
 
 
+def _blocking_failure_count(summary: dict[str, Any]) -> int:
+    return int(
+        summary.get(
+            "blocking_failures",
+            int(summary.get("failed", 0) or 0) + int(summary.get("broken", 0) or 0) + int(summary.get("error", 0) or 0),
+        )
+        or 0
+    )
+
+
+def _history_blocking_failure_count(entry: dict[str, Any]) -> int:
+    return int(
+        entry.get(
+            "blocking_failures",
+            int(entry.get("failed", 0) or 0) + int(entry.get("broken", 0) or 0) + int(entry.get("error", 0) or 0),
+        )
+        or 0
+    )
+
+
 def _failure_clusters(report: RunReport) -> list[dict[str, Any]]:
     clusters: dict[str, dict[str, Any]] = {}
     for test in report.tests:
-        if not _is_failure_status(test.status):
+        if not is_blocking_failure_status(test.status):
             continue
         summary = failure_summary(test)
         cluster = clusters.setdefault(
@@ -616,14 +638,11 @@ def _test_ref(test: TestCaseReport, *, include_failure: bool = False) -> dict[st
     return item
 
 
-def _is_failure_status(status: Any) -> bool:
-    return str(status or "").lower() in FAILED_STATUSES
-
-
 def _status_group(status: str) -> str:
+    status = normalized_status(status)
     if status == "passed":
         return "passed"
-    if _is_failure_status(status):
+    if is_blocking_failure_status(status):
         return "failed_broken"
     if status == "skipped":
         return "skipped"
@@ -678,7 +697,7 @@ def _filter_options(test_index: list[dict[str, Any]]) -> dict[str, list[str]]:
     for item in test_index:
         for key in ("status", "domain", "profile", "environment", "browser", "device_name", "platform", "context"):
             options[key].update(_values(item.get(key)))
-        if _is_failure_status(item.get("status")) and item.get("failure", {}).get("category"):
+        if is_blocking_failure_status(item.get("status")) and item.get("failure", {}).get("category"):
             options["failure_category"].add(item["failure"]["category"])
         options["duration_bucket"].add(item["duration_bucket"])
         options["flaky_category"].update(item["flaky_categories"])
