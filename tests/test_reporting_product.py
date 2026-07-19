@@ -634,6 +634,49 @@ def test_allure_adapter_groups_retries_and_accepts_metadata(tmp_path):
     assert test.environment == "dev"
     assert test.domain == "api"
     assert test.metadata["status_code"] == 200
-    assert len(test.retries) == 2
+    assert len(test.retries) == 1
+    assert test.retries[0].attempt == 1
+    assert test.retries[0].status == "failed"
     assert test.artifacts[0].artifact_type == "log"
     assert summarize_run(report)["flaky"] == 1
+
+
+def test_allure_adapter_single_results_do_not_create_retry_signals(tmp_path):
+    results = tmp_path / "allure-results"
+    results.mkdir()
+    for index in range(1, 11):
+        status = "skipped" if index == 10 else "passed"
+        result = {
+            "historyId": f"case-{index}",
+            "name": f"test_clean_{index}",
+            "fullName": f"tests.web.test_clean_{index}",
+            "status": status,
+            "start": index * 1000,
+            "stop": index * 1000 + 100,
+        }
+        (results / f"{index}-result.json").write_text(json.dumps(result), encoding="utf-8")
+
+    report = run_report_from_allure_results(
+        results,
+        run_id="web-clean-run",
+        project_name="web-automation-framework",
+        framework="pytest-web",
+    )
+    sidecar = build_report_data(report)
+    timeline = build_timeline_events(report)
+
+    assert len(report.tests) == 10
+    assert all(test.retries == [] for test in report.tests)
+    assert sidecar["signals"]["test_retry_count"] == 0
+    assert sidecar["charts"]["retry_signals"]["test_retry_count"] == 0
+    assert sidecar["quality_score"]["components"]["retry_penalty"] == 0
+    assert sidecar["risk_signal"]["level"] == "low"
+    assert not any(reason["label"] == "Retry signals" for reason in sidecar["risk_signal"]["reasons"])
+    assert not any(risk["title"] == "High retry count" for risk in sidecar["risk_signals"])
+    assert sidecar["default_gate_status"]["summary"]["failed"] == 0
+    test_retry_gate = next(
+        result for result in sidecar["default_gate_status"]["results"] if result["metric"] == "test_retries"
+    )
+    assert test_retry_gate["status"] == "passed"
+    assert sidecar["timeline"]["event_counts"].get("test_retry", 0) == 0
+    assert not any(event.event_type == "test_retry" for event in timeline)
