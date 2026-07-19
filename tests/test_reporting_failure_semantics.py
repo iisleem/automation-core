@@ -1,0 +1,67 @@
+from __future__ import annotations
+
+import json
+
+from automation_core.reporting import RunReport, TestCaseReport, build_report_data, generate_reporting_product
+
+EMPTY_FAILURE = {"category": "", "title": "", "detail": ""}
+
+
+def test_passed_and_skipped_tests_have_neutral_failure_fields(tmp_path):
+    report = RunReport(
+        run_id="clean-run",
+        project_name="web-automation-framework",
+        framework="pytest-web",
+        tests=[
+            TestCaseReport(id="login", name="test_login", status="passed", profile="chromium"),
+            TestCaseReport(id="setup", name="test_setup", status="skipped", profile="chromium"),
+        ],
+    )
+
+    sidecar = build_report_data(report)
+
+    assert [item["failure"] for item in sidecar["test_index"]] == [EMPTY_FAILURE, EMPTY_FAILURE]
+    assert sidecar["charts"]["failure_categories"] == {}
+    assert sidecar["aggregates"]["filter_options"]["failure_category"] == []
+    assert "Unknown failure" not in json.dumps(sidecar)
+
+    generate_reporting_product(report, tmp_path / "report")
+    output_sidecar = json.loads((tmp_path / "report" / "report-data.json").read_text(encoding="utf-8"))
+    explore_html = (tmp_path / "report" / "explore.html").read_text(encoding="utf-8")
+
+    assert [item["failure"] for item in output_sidecar["test_index"]] == [EMPTY_FAILURE, EMPTY_FAILURE]
+    assert output_sidecar["charts"]["failure_categories"] == {}
+    assert output_sidecar["aggregates"]["filter_options"]["failure_category"] == []
+    assert "Unknown failure" not in json.dumps(output_sidecar)
+    assert "((item.failure || {}).title || '-')" in explore_html
+    assert "countBy(filtered, (item) => (item.failure || {}).category, null)" in explore_html
+
+
+def test_real_failures_keep_smart_default_classification_without_polluting_passed_filters():
+    report = RunReport(
+        run_id="failure-run",
+        tests=[
+            TestCaseReport(id="passed", name="test_passed", status="passed"),
+            TestCaseReport(
+                id="passed-with-message",
+                name="test_passed_with_message",
+                status="passed",
+                failure_message="expected value did not match actual value",
+            ),
+            TestCaseReport(id="failed", name="test_failed", status="failed"),
+            TestCaseReport(id="broken", name="test_broken", status="broken"),
+            TestCaseReport(id="error", name="test_error", status="error"),
+        ],
+    )
+
+    sidecar = build_report_data(report)
+    by_id = {item["test_id"]: item for item in sidecar["test_index"]}
+
+    assert by_id["passed"]["failure"] == EMPTY_FAILURE
+    assert by_id["passed-with-message"]["failure"]["category"] == "assertion_mismatch"
+    assert by_id["failed"]["failure"]["category"] == "unknown"
+    assert by_id["failed"]["failure"]["title"] == "Unknown failure"
+    assert by_id["broken"]["failure"]["category"] == "unknown"
+    assert by_id["error"]["failure"]["category"] == "unknown"
+    assert sidecar["charts"]["failure_categories"] == {"unknown": 3}
+    assert sidecar["aggregates"]["filter_options"]["failure_category"] == ["unknown"]

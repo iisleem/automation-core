@@ -18,7 +18,8 @@ from automation_core.reporting.quality import QualityGate, QualityGateConfig, ev
 from automation_core.reporting.redaction import redact_payload, redact_report, redaction_manifest
 from automation_core.reporting.traversal import collect_action_retries, collect_test_artifacts, iter_steps
 
-FAILED_STATUSES = {"failed", "broken"}
+FAILED_STATUSES = {"failed", "broken", "error"}
+EMPTY_FAILURE_SUMMARY = {"category": "", "title": "", "detail": ""}
 
 
 def build_report_data(
@@ -166,7 +167,7 @@ def _test_index(report: RunReport, details: dict[str, str]) -> list[dict[str, An
         artifacts = collect_test_artifacts(test)
         action_retries = collect_action_retries(test)
         healing_events = _healing_events_for_test(test)
-        summary = failure_summary(test)
+        summary = _failure_summary_for_index(test)
         artifact_types = sorted({artifact.artifact_type for artifact in artifacts if artifact.artifact_type})
         record = {
             "test_id": test.id,
@@ -208,10 +209,31 @@ def _test_index(report: RunReport, details: dict[str, str]) -> list[dict[str, An
     return index
 
 
+def _failure_summary_for_index(test: TestCaseReport) -> dict[str, str]:
+    if _has_failure_details(test):
+        return failure_summary(test)
+    return dict(EMPTY_FAILURE_SUMMARY)
+
+
+def _has_failure_details(test: TestCaseReport) -> bool:
+    if _is_failure_status(test.status):
+        return True
+    if test.failure_message or test.failure_trace:
+        return True
+    for key in ("error", "failure_reason", "failure_category"):
+        if test.metadata.get(key):
+            return True
+    return False
+
+
 def _aggregates(report: RunReport, test_index: list[dict[str, Any]]) -> dict[str, Any]:
     status_counts = Counter(_status_group(test.status) for test in report.tests)
     duration_buckets = Counter(item["duration_bucket"] for item in test_index)
-    failure_counter = Counter(item["failure"]["category"] for item in test_index if item["status"] in FAILED_STATUSES)
+    failure_counter = Counter(
+        item["failure"]["category"]
+        for item in test_index
+        if _is_failure_status(item.get("status")) and item.get("failure", {}).get("category")
+    )
     artifact_types: Counter[str] = Counter()
     for item in test_index:
         artifact_types.update(item["artifact_types"])
@@ -235,7 +257,7 @@ def _aggregates(report: RunReport, test_index: list[dict[str, Any]]) -> dict[str
 
 def _risk_signals(report: RunReport, test_index: list[dict[str, Any]]) -> list[dict[str, Any]]:
     risks: list[dict[str, Any]] = []
-    failed = [item for item in test_index if item["status"] in FAILED_STATUSES]
+    failed = [item for item in test_index if _is_failure_status(item["status"])]
     flaky = [item for item in test_index if item["flaky_categories"]]
     high_retries = [item for item in test_index if item["retry_count"] + item["action_retry_count"] >= 3]
     slow = sorted(test_index, key=lambda item: item["duration_ms"], reverse=True)[:3]
@@ -334,9 +356,7 @@ def _failure_transitions(
         _test_identity_from_index(item): item for item in test_index if _test_identity_from_index(item)
     }
     current_failed = {
-        identity: item
-        for identity, item in current_by_identity.items()
-        if str(item.get("status", "")) in FAILED_STATUSES
+        identity: item for identity, item in current_by_identity.items() if _is_failure_status(item.get("status"))
     }
     previous_failed = {
         _test_identity_from_history(item): item
@@ -501,7 +521,7 @@ def _numeric_delta(current: Any, previous: Any) -> float:
 def _failure_clusters(report: RunReport) -> list[dict[str, Any]]:
     clusters: dict[str, dict[str, Any]] = {}
     for test in report.tests:
-        if test.status not in FAILED_STATUSES:
+        if not _is_failure_status(test.status):
             continue
         summary = failure_summary(test)
         cluster = clusters.setdefault(
@@ -596,10 +616,14 @@ def _test_ref(test: TestCaseReport, *, include_failure: bool = False) -> dict[st
     return item
 
 
+def _is_failure_status(status: Any) -> bool:
+    return str(status or "").lower() in FAILED_STATUSES
+
+
 def _status_group(status: str) -> str:
     if status == "passed":
         return "passed"
-    if status in FAILED_STATUSES:
+    if _is_failure_status(status):
         return "failed_broken"
     if status == "skipped":
         return "skipped"
@@ -654,7 +678,8 @@ def _filter_options(test_index: list[dict[str, Any]]) -> dict[str, list[str]]:
     for item in test_index:
         for key in ("status", "domain", "profile", "environment", "browser", "device_name", "platform", "context"):
             options[key].update(_values(item.get(key)))
-        options["failure_category"].add(item["failure"]["category"])
+        if _is_failure_status(item.get("status")) and item.get("failure", {}).get("category"):
+            options["failure_category"].add(item["failure"]["category"])
         options["duration_bucket"].add(item["duration_bucket"])
         options["flaky_category"].update(item["flaky_categories"])
         options["artifact_type"].update(item["artifact_types"])

@@ -1519,9 +1519,11 @@ def _page(title: str, body: str) -> str:
         }});
       }});
     }}
-    function countBy(items, fn) {{
+    function countBy(items, fn, fallback = 'unknown') {{
       return items.reduce((acc, item) => {{
-        const value = fn(item) || 'unknown';
+        const raw = fn(item);
+        if (!raw && fallback === null) return acc;
+        const value = raw || fallback;
         acc[value] = (acc[value] || 0) + 1;
         return acc;
       }}, {{}});
@@ -1565,7 +1567,7 @@ def _page(title: str, body: str) -> str:
       document.getElementById('explore-result-count').textContent = `${{filtered.length}} tests`;
       document.getElementById('explore-status-chart').innerHTML = barChart(countBy(filtered, (item) => item.status));
       document.getElementById('explore-duration-chart').innerHTML = barChart(countBy(filtered, (item) => item.duration_bucket));
-      document.getElementById('explore-failure-chart').innerHTML = barChart(countBy(filtered, (item) => (item.failure || {{}}).category));
+      document.getElementById('explore-failure-chart').innerHTML = barChart(countBy(filtered, (item) => (item.failure || {{}}).category, null));
       if (view === 'cards') {{
         root.className = 'explore-card-grid';
         root.innerHTML = filtered.map((item) => `<article class="test-card"><span class="status ${{classToken(item.status)}}">${{escapeHtml(item.status)}}</span><h3><a href="${{safeHref(item.detail_href)}}">${{escapeHtml(item.name)}}</a></h3><p class="muted">${{escapeHtml(item.full_name || item.test_id)}}</p><p>${{escapeHtml((item.failure || {{}}).title || '-')}}</p><p class="muted">${{Math.round(num(item.duration_ms))}} ms · ${{escapeHtml(item.profile || item.environment || '-')}}</p></article>`).join('') || '<p class="empty-state">No tests match the filters.</p>';
