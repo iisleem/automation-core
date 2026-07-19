@@ -71,7 +71,7 @@ def _test_from_allure_group(
 ) -> TestCaseReport:
     ordered = sorted(results, key=lambda result: (result.get("start", 0), result.get("stop", 0)))
     final = ordered[-1]
-    retries = [_retry_from_allure(index, result) for index, result in enumerate(ordered, start=1)]
+    retries = [_retry_from_allure(index, result) for index, result in enumerate(ordered[:-1], start=1)]
     labels = _labels(final)
     test = TestCaseReport(
         id=key,
