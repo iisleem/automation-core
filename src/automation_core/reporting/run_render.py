@@ -1151,7 +1151,7 @@ function esc(v){var t=(v==null?'':String(v));return t.replace(/[&<>"']/g,functio
 function fdur(ms){ms=Number(ms)||0;if(ms<1000)return (Math.round(ms/100)/10)+'s';var s=ms/1000;if(s<60)return (Math.round(s*10)/10)+'s';return (Math.round(s/60*10)/10)+'m';}
 function statusColor(s){return {passed:'var(--pass)',failed:'var(--fail)',broken:'var(--broken)',skipped:'var(--skip)'}[String(s).toLowerCase()]||'var(--muted)';}
 function statusSoft(s){return {passed:'var(--passSoft)',failed:'var(--failSoft)',broken:'var(--brokenSoft)',skipped:'var(--skipSoft)'}[String(s).toLowerCase()]||'var(--surfaceAlt)';}
-function evLabel(e){if(e.name)return e.name;var m={test_started:'Started',test_finished:'Finished',started:'Started',finished:'Finished',artifact:'Artifact captured',test_retry:'Retry attempt',action_retry:'Action retry',healing:'Self-healing',step:'Step'};var t=String(e.event_type||'').toLowerCase();return m[t]||(t.replace(/_/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();}))||'Event';}
+function evLabel(e){var et=String(e.event_type||'').toLowerCase();if(et==='test_started'||et==='started')return 'Started';if(et==='test_finished'||et==='finished')return 'Finished';var t=e.title||e.name;if(t)return String(t).replace('Test retry attempt','Retry attempt');var m={artifact:'Artifact captured',test_retry:'Retry attempt',action_retry:'Action retry',healing:'Self-healing',step:'Step'};return m[et]||(et.replace(/_/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();}))||'Event';}
 function render(){
   var d=rd();var events=(d.timeline||{}).events||[];var tests=d.test_index||[];
   var byId={};tests.forEach(function(t){byId[t.test_id]=t;});
@@ -1162,11 +1162,13 @@ function render(){
     var hay=(t.name+' '+evs.map(function(e){return e.name||e.event_type;}).join(' ')).toLowerCase();
     if(q&&hay.indexOf(q)<0)return '';
     var col=statusColor(t.status);
-    var steps=evs.length?evs:[{name:'Started',event_type:'started'},{name:'Finished',event_type:'finished'}];
+    var steps=evs.length?evs:[{title:'Started',event_type:'started',status:t.status},{title:'Finished',event_type:'finished',status:t.status}];
+    var t0=steps.length&&steps[0].timestamp?new Date(steps[0].timestamp).getTime():null;
     var stepper=steps.map(function(e,i){
-      var ec=/fail|error|broken|retry/.test((e.event_type||e.name||'').toLowerCase())?'var(--fail)':(/(artifact|capture)/.test((e.event_type||'').toLowerCase())?'var(--accent)':col);
+      var et=String(e.event_type||'').toLowerCase();
+      var ec=(/artifact|capture|healing/.test(et))?'var(--accent)':((et==='test_started'||et==='test_finished'||et==='started'||et==='finished')?col:statusColor(e.status||t.status));
       var connector=i<steps.length-1?'<div style="flex:1;height:2px;background:var(--border);margin:0 8px;align-self:flex-start;margin-top:6px;"></div>':'';
-      var ts=e.offset_ms!=null?fdur(e.offset_ms):(e.timestamp?'':'');
+      var ts=e.offset_ms!=null?fdur(e.offset_ms):((t0!=null&&e.timestamp)?fdur(new Date(e.timestamp).getTime()-t0):'');
       return '<div style="display:flex;flex-direction:column;align-items:center;text-align:center;min-width:110px;"><span style="width:13px;height:13px;border-radius:50%;background:'+ec+';"></span><strong style="font-size:12.5px;margin-top:8px;">'+esc(evLabel(e))+'</strong><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;color:var(--faint);margin-top:3px;">'+esc(ts)+'</span></div>'+connector;
     }).join('');
     return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);padding:22px;">'
@@ -1693,8 +1695,8 @@ def render_test_detail(report_data: dict[str, Any], test: dict[str, Any], *, pre
     healing = _healing_detail(test)
 
     main = (
-        '<a href="explore.html" style="display:inline-flex; align-items:center; gap:6px; font-size:13px; '
-        'color:var(--link); text-decoration:none; margin-bottom:14px;">← Back to Tests Explore</a>'
+        f'<a href="{_e(prefix + "explore.html")}" style="display:inline-flex; align-items:center; gap:6px; '
+        'font-size:13px; color:var(--link); text-decoration:none; margin-bottom:14px;">← Back to Tests Explore</a>'
         + f'<div style="margin-bottom:10px;">{_pill(status, status)}</div>'
         + f'<h1 style="font-family:{DISPLAY}; font-size:26px; font-weight:800; margin:0 0 6px; '
         f'overflow-wrap:anywhere; line-height:1.2;">{_e(test.get("name", ""))}</h1>'
@@ -1783,11 +1785,56 @@ def _healing_detail(test: dict[str, Any]) -> str:
     return _card(_title("Healing Events") + "".join(rows), extra="margin-bottom:20px;")
 
 
+_IMAGE_HINTS = ("png", "jpg", "jpeg", "gif", "webp", "screenshot", "image", "snapshot")
+_VIDEO_HINTS = ("mp4", "webm", "mov", "m4v", "video", "recording", "screen recording")
+
+
+def _artifact_viewer(entry: dict[str, Any], *, prefix: str) -> str:
+    """One inline-expandable artifact: click the row to reveal the content."""
+
+    name = str(entry.get("name", ""))
+    atype = str(entry.get("artifact_type", ""))
+    href = entry.get("href") or entry.get("path")
+    src = _e(prefix + href) if href and str(href) != "[redacted]" else ""
+    hint = f"{atype} {name}".lower()
+
+    if src and any(k in hint for k in _IMAGE_HINTS):
+        body = (
+            f'<img src="{src}" alt="{_e(name)}" loading="lazy" '
+            'style="max-width:100%; border-radius:8px; border:1px solid var(--border); display:block;">'
+        )
+    elif src and any(k in hint for k in _VIDEO_HINTS):
+        body = (
+            f'<video src="{src}" controls preload="metadata" '
+            'style="max-width:100%; border-radius:8px; border:1px solid var(--border); display:block;"></video>'
+        )
+    elif src:
+        # Logs, JSON, request/response, HAR, XML, text — show the content inline.
+        body = (
+            f'<iframe src="{src}" title="{_e(name)}" '
+            'style="width:100%; height:320px; border:1px solid var(--border); border-radius:8px; '
+            'background:var(--surface);"></iframe>'
+        )
+    else:
+        body = '<p style="font-size:13px; color:var(--faint); margin:0;">Content not available in a safe-shared report.</p>'
+
+    open_attr = " open" if any(k in hint for k in ("request", "response")) else ""
+    type_badge = (
+        f'<span style="font-size:11px; color:var(--faint); margin-left:auto; flex-shrink:0;">{_e(atype)}</span>'
+        if atype
+        else ""
+    )
+    return (
+        f'<details class="artifact"{open_attr}><summary>'
+        f'<span style="font-family:{MONO}; font-size:12.5px; overflow-wrap:anywhere;">{_e(name)}</span>'
+        f"{type_badge}</summary><div>{body}</div></details>"
+    )
+
+
 def _artifact_detail(report_data: dict[str, Any], test: dict[str, Any], *, prefix: str = "../") -> str:
     test_id = test.get("test_id")
     entries = [a for a in report_data.get("artifacts", []) if a.get("test_id") == test_id]
     if not entries:
-        # Fall back to plain names from the test-index record.
         names = test.get("artifact_names", [])
         if not names:
             return _card(
@@ -1796,26 +1843,8 @@ def _artifact_detail(report_data: dict[str, Any], test: dict[str, Any], *, prefi
             )
         entries = [{"name": name, "artifact_type": "", "href": None} for name in names]
 
-    def artifact_row(entry: dict[str, Any]) -> str:
-        name = entry.get("name", "")
-        href = entry.get("href") or entry.get("path")
-        atype = entry.get("artifact_type", "")
-        label = (
-            f'<a href="{_e(prefix + href)}" style="font-family:{MONO}; font-size:12.5px; color:var(--link); '
-            f'text-decoration:none; overflow-wrap:anywhere;">{_e(name)}</a>'
-            if href and str(href) != "[redacted]"
-            else f'<span style="font-family:{MONO}; font-size:12.5px; overflow-wrap:anywhere;">{_e(name)}</span>'
-        )
-        type_html = (
-            f'<span style="font-size:12px; color:var(--faint); flex-shrink:0;">{_e(atype)}</span>' if atype else ""
-        )
-        return (
-            '<div style="display:flex; justify-content:space-between; gap:16px; padding:10px 0; '
-            f'border-top:1px solid var(--border);">{label}{type_html}</div>'
-        )
-
-    rows = "".join(artifact_row(entry) for entry in entries)
-    return _card(_title("Artifacts") + rows, extra="margin-bottom:20px;")
+    viewers = "".join(_artifact_viewer(entry, prefix=prefix) for entry in entries)
+    return _card(_title("Artifacts") + viewers, extra="margin-bottom:20px;")
 
 
 _EVENT_LABELS = {
@@ -1832,27 +1861,28 @@ _EVENT_LABELS = {
 
 
 def _event_label(event: dict[str, Any]) -> str:
-    name = event.get("name")
-    if name:
-        return str(name)
     event_type = str(event.get("event_type") or "").lower()
-    label = _EVENT_LABELS.get(event_type)
-    if label:
-        return label
-    return event_type.replace("_", " ").title() or "Event"
+    if event_type in ("test_started", "started"):
+        return "Started"
+    if event_type in ("test_finished", "finished"):
+        return "Finished"
+    title = event.get("title") or event.get("name")
+    if title:
+        return str(title).replace("Test retry attempt", "Retry attempt")
+    return _EVENT_LABELS.get(event_type) or event_type.replace("_", " ").title() or "Event"
 
 
 def _event_color(event: dict[str, Any], test_status: str) -> str:
     event_type = str(event.get("event_type") or "").lower()
-    if "artifact" in event_type or "capture" in event_type:
+    if "artifact" in event_type or "capture" in event_type or "healing" in event_type:
         return "var(--accent)"
-    if any(token in event_type for token in ("retry", "fail", "error", "broken", "healing")):
-        return "var(--fail)" if "retry" in event_type or "fail" in event_type else "var(--broken)"
-    # Started/finished reflect the test's overall outcome; steps use their own status.
-    status = (
-        test_status if event_type in ("test_started", "test_finished", "started", "finished") else event.get("status")
-    )
-    color, _ = _status_colors(str(status or test_status))
+    # Started/finished reflect the test's overall outcome; retries and steps use
+    # their own attempt/step status (a failed first attempt is red, a recovered
+    # second attempt green), matching the design.
+    if event_type in ("test_started", "test_finished", "started", "finished"):
+        color, _ = _status_colors(test_status)
+    else:
+        color, _ = _status_colors(str(event.get("status") or test_status))
     return color
 
 

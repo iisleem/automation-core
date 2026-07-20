@@ -222,6 +222,49 @@ a:hover {
   text-decoration: underline;
 }
 
+details.artifact {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+details.artifact > summary {
+  cursor: pointer;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  list-style: none;
+  user-select: none;
+}
+
+details.artifact > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.artifact > summary::after {
+  content: "\\25B8";
+  color: var(--faint);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+details.artifact[open] > summary::after {
+  transform: rotate(90deg);
+}
+
+details.artifact > summary:hover {
+  background: var(--surfaceAlt);
+}
+
+details.artifact > div {
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surfaceAlt);
+}
+
 code,
 pre,
 .metric strong,
