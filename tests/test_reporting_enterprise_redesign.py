@@ -205,6 +205,7 @@ def test_enterprise_report_pages_sidecar_and_portfolio_surface_redesign(tmp_path
     assert "--bg: oklch(98% 0.004 240)" in dashboard_html
     assert "--surface: oklch(24% 0.016 255)" in dashboard_html
     assert "-webkit-line-clamp: 2" in dashboard_html
+    assert ".metric .muted" in dashboard_html
     assert "overview-hero" in dashboard_html
     assert "Key Wins" in dashboard_html
     assert "Focus Areas" in dashboard_html

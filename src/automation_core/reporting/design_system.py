@@ -462,16 +462,29 @@ article {
 .metric {
   padding: 18px;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .metric strong {
   display: block;
+  max-width: 100%;
   margin-bottom: 2px;
   color: var(--text);
   font-size: 26px;
-  line-height: 1;
+  line-height: 1.05;
   font-weight: 600;
   overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.metric .muted {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .metric span,
