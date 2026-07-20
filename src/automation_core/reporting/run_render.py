@@ -476,10 +476,10 @@ def _signed_dur(ms: Any) -> str:
 
 def _search_open_explore() -> str:
     return (
-        '<div style="display:flex; gap:10px; align-items:center;">'
+        '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:flex-end;">'
         '<input id="ov-search" type="search" placeholder="Search tests, failures..." '
         'style="padding:9px 14px; border-radius:9px; border:1px solid var(--border); background:var(--surface); '
-        'color:var(--text); font-size:13px; min-width:220px; font-family:inherit;">'
+        'color:var(--text); font-size:13px; flex:1 1 140px; min-width:0; font-family:inherit;">'
         '<a id="ov-explore" href="explore.html" style="padding:10px 16px; border-radius:9px; background:var(--accent); '
         "color:#fff; font-size:13px; font-weight:700; text-decoration:none; font-family:'Manrope',sans-serif; "
         'white-space:nowrap;">Open Explore</a></div>'
