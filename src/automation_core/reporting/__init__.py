@@ -31,6 +31,7 @@ from automation_core.reporting.opener import open_report
 from automation_core.reporting.portfolio import (
     archive_legacy_report_if_needed,
     collect_report_runs,
+    combine_report_portfolios,
     generate_report_portfolio,
     prepare_timestamped_report_dir,
 )
@@ -99,6 +100,7 @@ __all__ = [
     "prepare_timestamped_report_dir",
     "archive_legacy_report_if_needed",
     "collect_report_runs",
+    "combine_report_portfolios",
     "read_allure_results",
     "RiskThresholds",
     "run_report_from_allure_results",

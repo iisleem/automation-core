@@ -6,7 +6,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from shutil import move
+from shutil import copytree, move
 from typing import Any
 
 from automation_core.reporting import portfolio_render
@@ -96,6 +96,55 @@ def generate_report_portfolio(output_dir: str | Path, *, current_report_dir: str
     index_path = output_path / "index.html"
     index_path.write_text(portfolio_render.render_dashboard(portfolio_data), encoding="utf-8")
     return index_path
+
+
+def combine_report_portfolios(
+    sources: list[str | Path],
+    output_dir: str | Path,
+    *,
+    current_report_dir: str | Path | None = None,
+) -> Path:
+    """Aggregate retained runs from several framework report trees into one
+    combined cross-platform (web + mobile + api) portfolio.
+
+    Each source is a framework report root containing a ``runs/`` directory.
+    Every retained run is copied into ``output_dir/runs/`` (deduplicated by
+    ``run_id`` so re-running is idempotent and never deletes prior runs), then
+    the combined portfolio dashboard, reports gallery and compare pages are
+    rebuilt over the union. Because each run carries its own per-platform
+    breakdown, the combined dashboard shows real web/mobile/api trends,
+    coverage and history side by side.
+    """
+
+    output_path = Path(output_dir)
+    combined_runs = output_path / RUNS_DIR
+    combined_runs.mkdir(parents=True, exist_ok=True)
+
+    existing_ids: set[str] = set()
+    for report_data_path in combined_runs.glob("*/report-data.json"):
+        data = _read_json(report_data_path)
+        run_id = str(_summary_from_report_data(data or {}).get("run_id") or "")
+        if run_id:
+            existing_ids.add(run_id)
+
+    for source in sources:
+        source_runs = Path(source) / RUNS_DIR
+        if not source_runs.exists():
+            continue
+        for report_data_path in sorted(source_runs.glob("*/report-data.json")):
+            data = _read_json(report_data_path)
+            if not isinstance(data, dict):
+                continue
+            run_id = str(_summary_from_report_data(data).get("run_id") or "")
+            if run_id and run_id in existing_ids:
+                continue
+            run_dir = report_data_path.parent
+            dest = _unique_destination(combined_runs, run_dir.name)
+            copytree(run_dir, dest)
+            if run_id:
+                existing_ids.add(run_id)
+
+    return generate_report_portfolio(output_path, current_report_dir=current_report_dir)
 
 
 def collect_report_runs(output_dir: str | Path) -> list[dict[str, Any]]:
@@ -955,6 +1004,17 @@ def _file_timestamp(path: Path) -> str:
 
 
 def _unique_child_dir(parent: Path, folder_name: str) -> Path:
+    candidate = parent / folder_name
+    suffix = 2
+    while candidate.exists():
+        candidate = parent / f"{folder_name}-{suffix}"
+        suffix += 1
+    return candidate
+
+
+def _unique_destination(parent: Path, folder_name: str) -> Path:
+    """A non-existing child path (does not create it) for copytree targets."""
+
     candidate = parent / folder_name
     suffix = 2
     while candidate.exists():

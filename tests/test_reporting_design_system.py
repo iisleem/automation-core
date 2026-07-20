@@ -19,6 +19,7 @@ from automation_core.reporting import (
 from automation_core.reporting.platforms import classify_platform, platform_breakdown
 from automation_core.reporting.portfolio import (
     collect_report_runs,
+    combine_report_portfolios,
     generate_report_portfolio,
     prepare_timestamped_report_dir,
 )
@@ -162,3 +163,48 @@ def test_retained_runs_are_preserved_across_generations(tmp_path):
     assert portfolio_data["summary"]["total_reports"] == 2
     # Each retained run carries its platform breakdown for the cross-run trend.
     assert all("platforms" in run for run in portfolio_data["reports"])
+
+
+def _single_platform_report(platform: str, run_id: str, day: int) -> RunReport:
+    metadata = {"platform_type": platform}
+    if platform == "web":
+        metadata["browser"] = "chromium"
+    elif platform == "mobile":
+        metadata["device_name"] = "iphone-16-pro"
+    else:
+        metadata["api_profile"] = "rest"
+    return RunReport(
+        run_id=run_id,
+        project_name=f"{platform}-automation-framework",
+        framework="pytest",
+        generated_at=datetime(2026, 7, day, tzinfo=UTC),
+        tests=[TestCaseReport(id=f"{platform}-1", name=f"test_{platform}_flow", status="passed", metadata=metadata)],
+    )
+
+
+def test_combine_report_portfolios_merges_platforms_and_preserves_runs(tmp_path):
+    # Three separate framework report trees, one per platform.
+    sources = []
+    for platform, day in (("web", 14), ("mobile", 15), ("api", 16)):
+        source = tmp_path / f"{platform}-report"
+        report = _single_platform_report(platform, f"{platform}-run", day)
+        run_dir = prepare_timestamped_report_dir(source, run_id=report.run_id, generated_at=report.generated_at)
+        generate_reporting_product(report, run_dir, update_history_file=False)
+        sources.append(source)
+
+    combined = tmp_path / "combined"
+    combine_report_portfolios(sources, combined)
+
+    runs = collect_report_runs(combined)
+    assert {run["run_id"] for run in runs} == {"web-run", "mobile-run", "api-run"}
+    portfolio_data = json.loads((combined / "portfolio-data.json").read_text(encoding="utf-8"))
+    platforms = set()
+    for run in portfolio_data["reports"]:
+        platforms |= set(run.get("platforms", {}))
+    assert platforms == {"web", "mobile", "api"}
+
+    # Idempotent: re-combining does not duplicate or delete runs.
+    combine_report_portfolios(sources, combined)
+    runs_again = collect_report_runs(combined)
+    assert len(runs_again) == 3
+    assert (combined / "runs").exists()

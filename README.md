@@ -46,7 +46,10 @@ release gates (minimum adjusted pass rate, zero new unresolved failures, duratio
 score (60% adjusted pass rate + 40% stability), design-faithful portfolio dashboard/reports/compare
 pages, and per-run executive, overview, quality gates, tests explore, timeline, flaky, matrix,
 history, share, and test-detail pages. Long identifiers, selectors, and paths are contained with a
-monospace face plus wrap/ellipsis, and every list/table/search has an honest empty state.
+monospace face plus wrap/ellipsis, and every list/table/search has an honest empty state. It also
+adds `combine_report_portfolios(...)`, which aggregates retained runs from several framework report
+trees into one combined web+mobile+api portfolio (deduplicated by run id, never deleting prior runs),
+and fills the sidebar column full-height so no empty gutter shows on tall pages.
 
 `0.11.5` improves retained-run report cards so long run identifiers, quality scores, and risk
 badges remain readable across desktop and narrow viewports.
