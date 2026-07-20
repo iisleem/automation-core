@@ -587,17 +587,7 @@ def _render_dashboard(
   </article>
   <article>
     <h2>Signal Counts</h2>
-    {
-            _key_values(
-                {
-                    "Artifacts": signals["artifact_count"],
-                    "Action Retries": signals["action_retry_count"],
-                    "Test Retries": signals["test_retry_count"],
-                    "Healing Events": signals["healing_event_count"],
-                    "Healing Decisions": _inline_counts(signals["healing_decisions"]),
-                }
-            )
-        }
+    {_signal_counts_view(signals)}
   </article>
 </section>
 <section class="grid three">
@@ -867,6 +857,9 @@ def _render_test_page(
         for event in build_timeline_events(RunReport(run_id=report.run_id, tests=[test]))
         if event.test_id == test.id
     ]
+    search_placeholder = (
+        "Steps, retries, healing, artifacts, logs" if healing_events else "Steps, retries, artifacts, logs"
+    )
     return _page(
         test.name,
         f"""
@@ -881,15 +874,11 @@ def _render_test_page(
 {_nav("explore", prefix="../")}
 <section class="toolbar" data-filter-scope="detail-page">
   <label class="search-box">Search this test
-    <input type="search" data-filter-search="detail-page" placeholder="Steps, retries, healing, artifacts, logs">
+    <input type="search" data-filter-search="detail-page" placeholder="{_e(search_placeholder)}">
   </label>
 </section>
 <section class="metrics">
-  {_metric("Duration", _format_duration(test.duration_ms))}
-  {_metric("Retries", len(test.retries))}
-  {_metric("Action Retries", len(action_retries))}
-  {_metric("Healing Events", len(healing_events))}
-  {_metric("Artifacts", len(artifacts))}
+  {_detail_metrics(test, action_retries, healing_events, artifacts)}
 </section>
 <section class="grid two">
   <article>
@@ -911,10 +900,7 @@ def _render_test_page(
     {_data_block(_display_metadata(test.metadata or {}))}
   </article>
 </section>
-<section data-filter-root="detail-page">
-  <h2>Healing Events</h2>
-  {_healing_table(healing_events)}
-</section>
+{_detail_healing_section(healing_events)}
 <section data-filter-root="detail-page">
   <h2>Steps</h2>
   {_steps_view(test.steps)}
@@ -1004,15 +990,7 @@ def _render_executive_page(
   <article>
     <h2>Flaky And Retry Summary</h2>
     {_flaky_breakdown_view(report_data["flaky"]["breakdown"])}
-    {
-            _key_values(
-                {
-                    "Test Retries": report_data["signals"]["test_retry_count"],
-                    "Action Retries": report_data["signals"]["action_retry_count"],
-                    "Healing Events": report_data["signals"]["healing_event_count"],
-                }
-            )
-        }
+    {_key_values(_retry_summary_values(report_data["signals"]))}
   </article>
 </section>
 <section class="grid three">
@@ -1069,6 +1047,7 @@ def _render_share_page(report: RunReport, report_data: dict[str, Any]) -> str:
   <span>Generated files are self-contained and intended for offline sharing from this report directory.</span>
 </section>
 <section class="grid three">
+  {_share_link_card()}
   {_export_card("Full Report Package", "Use the report directory as the package root. Keep HTML, data, exports, tests, and artifacts together.", {"Entry": "index.html", "Manifest": exports["share_manifest_json"]})}
   {_export_card("Run Data", "Machine-readable run summaries for downstream checks and dashboards.", {"Sidecar JSON": exports["sidecar_json"], "Run JSON": exports["run_report_json"], "Bundle JSON": exports["report_bundle_json"]})}
   {_export_card("Spreadsheet Exports", "Flat test indexes for spreadsheet workflows, release notes, and filtered follow-up analysis.", {"CSV": exports["test_index_csv"], "Excel Workbook": exports["test_index_xlsx"]})}
@@ -1311,144 +1290,83 @@ def _nav(active: str, *, prefix: str = "") -> str:
         f'<a class="{"active" if key == active else ""}" href="{_e(prefix + href)}">{_e(label)}</a>'
         for key, label, href in items
     )
-    return f'<nav class="app-nav" aria-label="Report navigation">{links}</nav>'
+    return (
+        '<div class="nav-shell" data-nav-shell>'
+        '<button type="button" class="mobile-nav-toggle" data-nav-toggle '
+        'aria-controls="report-navigation" aria-expanded="false">Menu</button>'
+        '<nav class="app-nav" id="report-navigation" aria-label="Report navigation">'
+        f'<a class="nav-brand" href="{_e(prefix + "index.html")}">'
+        '<span class="nav-logo">A</span><span><strong>Automation Core</strong>'
+        "<small>Product Report</small></span></a>"
+        f"{links}{_theme_controls()}</nav></div>"
+    )
 
 
 def _page(title: str, body: str) -> str:
     return f"""<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="system">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{_e(title)}</title>
-  <style>
-    :root {{ color-scheme: light; --ink:#172033; --muted:#5b6472; --line:#dbe3ec; --panel:#ffffff; --bg:#f5f7fa; --accent:#0f766e; --accent-2:#2563eb; --danger:#b91c1c; --warn:#b45309; --ok:#047857; --shadow:0 12px 30px rgba(15,23,42,.08); }}
-    * {{ box-sizing:border-box; }}
-    html,body {{ max-width:100%; overflow-x:hidden; }}
-    body {{ margin:0; font-family: Arial, sans-serif; color:var(--ink); background:linear-gradient(180deg,#eef3f8 0,#f7f9fb 260px,#f5f7fa 100%); }}
-    .hero {{ background:linear-gradient(135deg,#0d1b2a,#142f43); color:#fff; padding:30px clamp(18px,4vw,42px); display:flex; justify-content:space-between; gap:18px; align-items:flex-start; border-bottom:1px solid rgba(255,255,255,.16); }}
-    .hero.compact {{ padding:22px clamp(18px,4vw,42px); }}
-    h1 {{ margin:0 0 8px; font-size:clamp(24px,3vw,34px); letter-spacing:0; overflow-wrap:anywhere; }}
-    h2 {{ margin:0 0 14px; font-size:18px; letter-spacing:0; }}
-    h3 {{ margin:0 0 10px; font-size:15px; }}
-    p {{ margin:0; color:inherit; overflow-wrap:anywhere; }}
-    .eyebrow {{ color:#b7c7d7; font-size:12px; text-transform:uppercase; letter-spacing:0; margin-bottom:7px; overflow-wrap:anywhere; }}
-    .app-nav {{ position:sticky; top:0; z-index:3; display:flex; gap:6px; flex-wrap:wrap; overflow-x:hidden; width:100%; max-width:100vw; min-width:0; padding:12px clamp(18px,4vw,42px); background:rgba(255,255,255,.96); border-bottom:1px solid var(--line); box-shadow:0 1px 0 rgba(15,23,42,.04); }}
-    .app-nav::-webkit-scrollbar {{ height:6px; }}
-    .app-nav::-webkit-scrollbar-thumb {{ background:#cbd5e1; border-radius:999px; }}
-    .app-nav a {{ color:#0f5b99; font-weight:700; text-decoration:none; padding:8px 10px; border-radius:8px; white-space:nowrap; min-width:0; }}
-    .app-nav a.active {{ background:#e7f3ff; color:#0b4d83; box-shadow:inset 0 0 0 1px #bfdbfe; }}
-    section {{ margin:22px clamp(18px,4vw,42px); max-width:100%; }}
-    article {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; min-width:0; max-width:100%; overflow:hidden; box-shadow:var(--shadow); }}
-    .metrics {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:12px; }}
-    .metrics.compact {{ margin-bottom:12px; }}
-    .metric {{ background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; min-width:0; box-shadow:0 4px 18px rgba(15,23,42,.05); }}
-    .metric strong {{ display:block; font-size:26px; margin-bottom:4px; overflow-wrap:anywhere; }}
-    .grid {{ display:grid; gap:16px; }}
-    .grid.two {{ grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr)); }}
-    .grid.three {{ grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr)); }}
-    .grid.four {{ grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr)); }}
-    .chart-grid article {{ min-height:220px; }}
-    .insight-card {{ display:grid; gap:12px; align-content:start; }}
-    .toolbar {{ display:flex; flex-wrap:wrap; gap:12px; align-items:end; padding:14px; background:#fff; border:1px solid var(--line); border-radius:8px; }}
-    .toolbar label {{ display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--muted); font-weight:700; min-width:150px; }}
-    .search-box {{ flex:1 1 280px; }}
-    input,select,button,.button {{ border:1px solid #cbd5e1; border-radius:8px; padding:9px 10px; font:inherit; background:#fff; color:var(--ink); max-width:100%; }}
-    .button {{ display:inline-flex; align-items:center; text-decoration:none; font-weight:700; color:#0f5b99; cursor:pointer; }}
-    .result-strip {{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; }}
-    .table-wrap {{ width:100%; max-width:100%; overflow-x:auto; border-radius:8px; }}
-    .table-wrap.wide table {{ min-width:720px; table-layout:auto; }}
-    .grid.two .table-wrap.wide table {{ min-width:0; table-layout:fixed; }}
-    .compare-table table {{ min-width:520px; }}
-    table {{ border-collapse:collapse; width:100%; min-width:0; background:#fff; border:1px solid var(--line); table-layout:fixed; }}
-    th,td {{ border-bottom:1px solid #e9edf2; padding:10px; text-align:left; vertical-align:top; overflow-wrap:anywhere; word-break:break-word; min-width:0; }}
-    th {{ background:#eef2f6; color:#263345; }}
-    .kv-table th {{ width:34%; max-width:180px; }}
-    .kv-table td {{ width:66%; }}
-    pre {{ white-space:pre-wrap; overflow:auto; overflow-wrap:anywhere; word-break:break-word; background:#f4f6f8; border:1px solid #e1e6ed; border-radius:6px; padding:10px; max-width:100%; }}
-    pre span[data-line],code {{ display:block; max-width:100%; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; }}
-    details {{ margin-top:10px; }}
-    summary {{ cursor:pointer; color:#0f5b99; font-weight:700; }}
-    .status {{ display:inline-block; padding:5px 9px; border-radius:999px; font-size:12px; font-weight:700; text-transform:uppercase; white-space:nowrap; line-height:1; }}
-    .passed {{ color:#047857; background:#dff7ed; }}
-    .warning {{ color:#92400e; background:#fef3c7; }}
-    .failed,.broken,.failed_broken {{ color:#b91c1c; background:#fee2e2; }}
-    .skipped {{ color:#92400e; background:#fef3c7; }}
-    .unknown {{ color:#4b5563; background:#e5e7eb; }}
-    .low {{ color:#047857; background:#dff7ed; }}
-    .medium {{ color:#92400e; background:#fef3c7; }}
-    .high {{ color:#b91c1c; background:#fee2e2; }}
-    .score-ring {{ width:min(150px,100%); aspect-ratio:1; border-radius:50%; display:grid; place-items:center; margin:4px 0 14px; background:conic-gradient(var(--ok) 0 75%,#e5e7eb 75% 100%); box-shadow:inset 0 0 0 18px #fff,0 8px 18px rgba(15,23,42,.08); }}
-    .score-ring strong {{ font-size:28px; }}
-    .score-ring span {{ color:var(--muted); font-size:12px; text-transform:uppercase; font-weight:700; }}
-    .score-ring.status-warning {{ background:conic-gradient(var(--warn) 0 62%,#e5e7eb 62% 100%); }}
-    .score-ring.status-failed {{ background:conic-gradient(var(--danger) 0 45%,#e5e7eb 45% 100%); }}
-    .score-ring.status-unknown {{ background:conic-gradient(#64748b 0 20%,#e5e7eb 20% 100%); }}
-    .bar,.hbar-track {{ height:9px; background:#e5e7eb; border-radius:999px; overflow:hidden; min-width:80px; }}
-    .bar span,.hbar-fill {{ display:block; height:100%; background:var(--accent); }}
-    .hbar-row {{ display:grid; grid-template-columns:minmax(90px,1fr) minmax(90px,2fr) auto; gap:10px; align-items:center; margin:9px 0; }}
-    .hbar-label,.truncate {{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }}
-    .donut-wrap {{ display:flex; align-items:center; gap:16px; flex-wrap:wrap; }}
-    .donut {{ width:132px; height:132px; border-radius:50%; display:grid; place-items:center; box-shadow:inset 0 0 0 24px #fff; }}
-    .donut strong {{ background:#fff; border-radius:999px; padding:18px 10px; min-width:72px; text-align:center; }}
-    .legend {{ display:grid; gap:7px; }}
-    .legend span {{ display:inline-flex; gap:7px; align-items:center; }}
-    .swatch {{ width:10px; height:10px; border-radius:3px; display:inline-block; }}
-    .risk-list,.coverage-list {{ display:grid; gap:10px; min-width:0; }}
-    .risk {{ border-left:4px solid var(--accent-2); padding:10px 12px; background:#f8fafc; border-radius:6px; min-width:0; overflow:hidden; }}
-    .risk.high {{ border-left-color:var(--danger); }}
-    .risk.medium {{ border-left-color:var(--warn); }}
-    .risk a,.risk .muted {{ overflow-wrap:anywhere; word-break:break-word; }}
-    .share-banner {{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; padding:13px 14px; background:#edf7f4; border:1px solid #b8ded4; border-radius:8px; }}
-    .safe-badge {{ display:inline-flex; align-items:center; gap:7px; font-weight:700; color:#0f5b46; background:#dff7ed; border:1px solid #a7d9c9; border-radius:999px; padding:6px 10px; }}
-    .export-card,.stakeholder-card {{ display:grid; gap:10px; align-content:start; }}
-    .export-links {{ display:grid; gap:7px; }}
-    .print-summary {{ display:grid; gap:16px; }}
-    .tag-cloud {{ display:flex; gap:8px; flex-wrap:wrap; }}
-    .tag {{ background:#edf2f7; color:#263345; border-radius:999px; padding:5px 8px; font-size:12px; overflow-wrap:anywhere; }}
-    .matrix-page {{ display:grid; gap:18px; }}
-    .matrix-section {{ overflow:hidden; }}
-    .matrix-heatmap {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr)); gap:10px; margin-bottom:14px; }}
-    body[data-matrix-view="table"] .matrix-heatmap {{ display:none; }}
-    body[data-matrix-view="heatmap-only"] .matrix-table {{ display:none; }}
-    .heat-cell {{ border:1px solid var(--line); border-radius:8px; padding:14px; background:#f8fafc; min-width:0; display:grid; gap:12px; align-content:start; }}
-    .heat-head {{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; min-width:0; }}
-    .heat-name {{ font-weight:700; overflow-wrap:anywhere; min-width:0; line-height:1.25; }}
-    .heat-value {{ flex:0 0 auto; white-space:nowrap; }}
-    .heat-bar {{ height:11px; background:#e5e7eb; border-radius:999px; overflow:hidden; margin:4px 0; }}
-    .heat-bar span {{ display:block; height:100%; background:linear-gradient(90deg,#dc2626,#eab308,#16a34a); }}
-    .heat-details {{ color:var(--muted); font-size:13px; line-height:1.45; display:grid; gap:3px; overflow-wrap:anywhere; word-break:break-word; }}
-    .heat-failures {{ color:#425066; }}
-    .explore-card-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr)); gap:12px; }}
-    .test-card {{ border:1px solid var(--line); border-radius:8px; padding:14px; background:#fff; min-width:0; }}
-    .empty-state {{ color:var(--muted); padding:18px; background:#fff; border:1px dashed var(--line); border-radius:8px; }}
-    img.preview {{ max-width:100%; border:1px solid var(--line); border-radius:6px; }}
-    video {{ max-width:100%; }}
-    a {{ color:#0f5b99; overflow-wrap:anywhere; word-break:break-word; }}
-    li {{ min-width:0; overflow-wrap:anywhere; word-break:break-word; }}
-    .muted {{ color:var(--muted); }}
-    [hidden] {{ display:none !important; }}
-    @media (max-width:720px) {{
-      .hero {{ flex-direction:column; }}
-      .app-nav {{ position:static; gap:5px; padding:10px 12px; }}
-      .app-nav a {{ flex:1 1 calc(33.333% - 6px); padding:8px 6px; text-align:center; white-space:normal; line-height:1.15; overflow-wrap:anywhere; }}
-      .toolbar label {{ flex:1 1 100%; }}
-      .table-wrap.wide {{ overflow-x:visible; }}
-      .table-wrap.wide table {{ min-width:0; border:0; background:transparent; table-layout:auto; }}
-      .table-wrap.wide thead {{ display:none; }}
-      .table-wrap.wide tbody,.table-wrap.wide tr,.table-wrap.wide td {{ display:block; width:100%; }}
-      .table-wrap.wide tr {{ margin:0 0 12px; border:1px solid var(--line); border-radius:8px; background:#fff; padding:8px 10px; }}
-      .table-wrap.wide td {{ border-bottom:1px solid #e9edf2; padding:8px 0; }}
-      .table-wrap.wide td:last-child {{ border-bottom:0; }}
-      .table-wrap.wide td::before {{ content:attr(data-label); display:block; margin-bottom:3px; color:var(--muted); font-size:11px; font-weight:700; text-transform:uppercase; }}
-      .table-wrap.wide td[colspan]::before {{ display:none; }}
-      .table-wrap.wide .status {{ white-space:normal; }}
-      .hbar-label,.truncate {{ white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere; }}
-      .bar,.hbar-track {{ min-width:0; width:100%; }}
-      .hbar-row {{ grid-template-columns:1fr; }}
-    }}
-  </style>
+  <script>{_theme_bootstrap_script()}</script>
+  <style>{_product_styles()}</style>
   <script>
+    function setupTheme() {{
+      const allowed = new Set(['system', 'light', 'dark']);
+      const storageKey = 'automation-report-theme';
+      const saved = (() => {{
+        try {{ return localStorage.getItem(storageKey) || 'system'; }}
+        catch (error) {{ return 'system'; }}
+      }})();
+      const apply = (mode) => {{
+        const theme = allowed.has(mode) ? mode : 'system';
+        document.documentElement.dataset.theme = theme;
+        document.body.dataset.theme = theme;
+        document.querySelectorAll('[data-theme-choice]').forEach((button) => {{
+          const active = button.dataset.themeChoice === theme;
+          button.classList.toggle('active', active);
+          button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        }});
+        try {{ localStorage.setItem(storageKey, theme); }} catch (error) {{}}
+      }};
+      document.querySelectorAll('[data-theme-choice]').forEach((button) => {{
+        button.addEventListener('click', () => apply(button.dataset.themeChoice));
+      }});
+      apply(saved);
+    }}
+    function setupNavigation() {{
+      const shell = document.querySelector('[data-nav-shell]');
+      if (!shell) return;
+      const toggle = shell.querySelector('[data-nav-toggle]');
+      const setOpen = (open) => {{
+        shell.classList.toggle('open', open);
+        if (toggle) toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      }};
+      if (toggle) toggle.addEventListener('click', () => setOpen(!shell.classList.contains('open')));
+      shell.querySelectorAll('.app-nav a').forEach((link) => {{
+        link.addEventListener('click', () => {{
+          if (window.matchMedia('(max-width: 720px)').matches) setOpen(false);
+        }});
+      }});
+      window.addEventListener('keydown', (event) => {{
+        if (event.key === 'Escape') setOpen(false);
+      }});
+      window.matchMedia('(min-width: 721px)').addEventListener('change', () => setOpen(false));
+    }}
+    function setupShareLinks() {{
+      document.querySelectorAll('[data-copy-share-link]').forEach((button) => {{
+        button.addEventListener('click', async () => {{
+          const value = button.dataset.copyShareLink || window.location.href;
+          try {{
+            await navigator.clipboard.writeText(value);
+            button.textContent = 'Copied';
+          }} catch (error) {{
+            window.prompt('Copy report link', value);
+          }}
+        }});
+      }});
+    }}
     function filterLog(input) {{
       const target = document.getElementById(input.dataset.target);
       if (!target) return;
@@ -1579,8 +1497,21 @@ def _page(title: str, body: str) -> str:
         root.innerHTML = filtered.map((item) => `<article class="test-card"><span class="status ${{classToken(item.status)}}">${{escapeHtml(item.status)}}</span><h3><a href="${{safeHref(item.detail_href)}}">${{escapeHtml(item.name)}}</a></h3><p class="muted">${{escapeHtml(item.full_name || item.test_id)}}</p><p>${{escapeHtml((item.failure || {{}}).title || '-')}}</p><p class="muted">${{Math.round(num(item.duration_ms))}} ms · ${{escapeHtml(item.profile || item.environment || '-')}}</p></article>`).join('') || '<p class="empty-state">No tests match the filters.</p>';
         return;
       }}
-      root.className = 'table-wrap wide';
-      root.innerHTML = `<table><thead><tr><th>Status</th><th>Test</th><th>Domain</th><th>Profile</th><th>Environment</th><th>Duration</th><th>Failure</th><th>Signals</th></tr></thead><tbody>${{filtered.map((item) => `<tr><td><span class="status ${{classToken(item.status)}}">${{escapeHtml(item.status)}}</span></td><td><a href="${{safeHref(item.detail_href)}}">${{escapeHtml(item.name)}}</a><br><span class="muted">${{escapeHtml(item.full_name || item.test_id)}}</span></td><td>${{escapeHtml(item.domain || '-')}}</td><td>${{escapeHtml(item.profile || '-')}}</td><td>${{escapeHtml(item.environment || '-')}}</td><td>${{Math.round(num(item.duration_ms))}} ms</td><td>${{escapeHtml((item.failure || {{}}).title || '-')}}</td><td>R:${{num(item.retry_count)}} A:${{num(item.action_retry_count)}} H:${{num(item.healing_event_count)}} Art:${{num(item.artifact_count)}}</td></tr>`).join('') || '<tr><td colspan="8">No tests match the filters.</td></tr>'}}</tbody></table>`;
+      root.className = 'table-wrap wide explore-table-wrap';
+      root.innerHTML = `<table><thead><tr><th>Status</th><th>Test</th><th>Scope</th><th>Duration</th><th>Failure</th><th>Signals</th></tr></thead><tbody>${{filtered.map((item) => {{
+        const scope = [
+          ['Domain', item.domain || '-'],
+          ['Profile', item.profile || '-'],
+          ['Environment', item.environment || '-'],
+        ].map(([label, value]) => `<span><strong>${{label}}:</strong> ${{escapeHtml(value)}}</span>`).join('');
+        const signals = [
+          ['Retries', num(item.retry_count)],
+          ['Actions', num(item.action_retry_count)],
+          ['Artifacts', num(item.artifact_count)],
+        ];
+        if (num(item.healing_event_count)) signals.splice(2, 0, ['Healing', num(item.healing_event_count)]);
+        return `<tr><td><span class="status ${{classToken(item.status)}}">${{escapeHtml(item.status)}}</span></td><td class="test-name-cell"><a href="${{safeHref(item.detail_href)}}">${{escapeHtml(item.name)}}</a><span class="muted">${{escapeHtml(item.full_name || item.test_id)}}</span></td><td class="scope-cell">${{scope}}</td><td>${{Math.round(num(item.duration_ms))}} ms</td><td>${{escapeHtml((item.failure || {{}}).title || '-')}}</td><td class="signal-cell">${{signals.map(([label, value]) => `<span><strong>${{label}}:</strong> ${{value}}</span>`).join('')}}</td></tr>`;
+      }}).join('') || '<tr><td colspan="6">No tests match the filters.</td></tr>'}}</tbody></table>`;
       hydrateResponsiveTables(root);
     }}
     function setupExplore() {{
@@ -1605,15 +1536,1003 @@ def _page(title: str, body: str) -> str:
       renderExplore(items);
     }}
     document.addEventListener('DOMContentLoaded', () => {{
+      setupTheme();
+      setupNavigation();
+      setupShareLinks();
       setupGenericFilters();
       setupExplore();
     }});
   </script>
 </head>
-<body data-visual-system="enterprise-redesign">
+<body data-visual-system="enterprise-redesign" data-theme-default="system">
 {body}
 </body>
 </html>
+"""
+
+
+def _theme_bootstrap_script() -> str:
+    return """(function() {
+  try {
+    var mode = localStorage.getItem('automation-report-theme') || 'system';
+    if (!/^(system|light|dark)$/.test(mode)) mode = 'system';
+    document.documentElement.dataset.theme = mode;
+  } catch (error) {
+    document.documentElement.dataset.theme = 'system';
+  }
+})();"""
+
+
+def _theme_controls() -> str:
+    return (
+        '<div class="theme-panel" aria-label="Appearance">'
+        '<span class="theme-label">Appearance</span>'
+        '<div class="theme-options" role="group" aria-label="Appearance theme">'
+        '<button type="button" data-theme-choice="system" aria-pressed="true" class="active">System</button>'
+        '<button type="button" data-theme-choice="light" aria-pressed="false">Light</button>'
+        '<button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>'
+        "</div></div>"
+    )
+
+
+def _product_styles() -> str:
+    return """
+:root {
+  color-scheme: light dark;
+  --sidebar-width: 268px;
+  --ink: #172033;
+  --heading: #172033;
+  --muted: #5b6472;
+  --line: #dbe3ec;
+  --panel: #ffffff;
+  --panel-soft: #f8fafc;
+  --bg: #f3f6f9;
+  --input-bg: #ffffff;
+  --table-head: #eef3f7;
+  --accent: #2563eb;
+  --accent-2: #7c3aed;
+  --danger: #b91c1c;
+  --warn: #b45309;
+  --ok: #047857;
+  --hero-title: #172033;
+  --hero-text: #526071;
+  --dark-heading: #f8fafc;
+  --sidebar-bg: #eef3f8;
+  --sidebar-ink: #1f2937;
+  --nav-active-bg: #dce8ff;
+  --nav-active-ink: #2563eb;
+  --nav-hover: #e6edf6;
+  --shadow: 0 10px 24px rgba(15, 23, 42, .08);
+  --soft-shadow: 0 3px 12px rgba(15, 23, 42, .05);
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ink: #e7edf7;
+    --heading: #f8fafc;
+    --muted: #a8b3c7;
+    --line: #293548;
+    --panel: #111827;
+    --panel-soft: #162234;
+    --bg: #070b12;
+    --input-bg: #0f172a;
+    --table-head: #182335;
+    --accent: #60a5fa;
+    --accent-2: #a78bfa;
+    --danger: #f87171;
+    --warn: #fbbf24;
+    --ok: #34d399;
+    --hero-title: #f8fafc;
+    --hero-text: #cbd5e1;
+    --sidebar-bg: #0b1220;
+    --sidebar-ink: #e7edf7;
+    --nav-active-bg: #1d3b68;
+    --nav-active-ink: #bfdbfe;
+    --nav-hover: #172033;
+    --shadow: 0 12px 30px rgba(0, 0, 0, .32);
+    --soft-shadow: 0 4px 14px rgba(0, 0, 0, .22);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #e7edf7;
+  --heading: #f8fafc;
+  --muted: #a8b3c7;
+  --line: #293548;
+  --panel: #111827;
+  --panel-soft: #162234;
+  --bg: #070b12;
+  --input-bg: #0f172a;
+  --table-head: #182335;
+  --accent: #60a5fa;
+  --accent-2: #a78bfa;
+  --danger: #f87171;
+  --warn: #fbbf24;
+  --ok: #34d399;
+  --hero-title: #f8fafc;
+  --hero-text: #cbd5e1;
+  --sidebar-bg: #0b1220;
+  --sidebar-ink: #e7edf7;
+  --nav-active-bg: #1d3b68;
+  --nav-active-ink: #bfdbfe;
+  --nav-hover: #172033;
+  --shadow: 0 12px 30px rgba(0, 0, 0, .32);
+  --soft-shadow: 0 4px 14px rgba(0, 0, 0, .22);
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+.hero {
+  color: var(--hero-text);
+  padding: 32px clamp(18px, 4vw, 44px) 10px;
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+}
+.hero.compact {
+  padding-top: 28px;
+}
+h1,
+h2,
+h3 {
+  color: var(--heading);
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+.hero h1 {
+  color: var(--hero-title);
+}
+h1 {
+  margin: 0 0 8px;
+  font-size: clamp(26px, 3vw, 38px);
+  line-height: 1.12;
+}
+h2 {
+  margin: 0 0 14px;
+  font-size: 18px;
+  line-height: 1.3;
+}
+h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+p {
+  margin: 0;
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+.eyebrow {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  margin-bottom: 7px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.nav-shell {
+  z-index: 20;
+}
+.mobile-nav-toggle {
+  display: none;
+}
+.app-nav {
+  min-width: 0;
+}
+.app-nav a {
+  color: var(--sidebar-ink);
+  font-weight: 700;
+  text-decoration: none;
+  border-radius: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.app-nav a.active {
+  background: var(--nav-active-bg);
+  color: var(--nav-active-ink);
+  box-shadow: inset 3px 0 0 var(--nav-active-ink);
+}
+.nav-brand {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 4px 5px 16px;
+  color: var(--sidebar-ink);
+}
+.nav-brand small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 400;
+}
+.nav-logo {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 800;
+}
+.theme-panel {
+  display: grid;
+  gap: 8px;
+}
+.theme-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.theme-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+}
+.theme-options button {
+  border: 0;
+  border-radius: 7px;
+  padding: 8px 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.theme-options button.active,
+.theme-options button[aria-pressed="true"] {
+  background: var(--panel);
+  color: var(--heading);
+  box-shadow: var(--soft-shadow);
+}
+section {
+  margin: 22px clamp(18px, 4vw, 44px);
+  max-width: 100%;
+}
+article {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+}
+.metrics.compact {
+  margin-bottom: 12px;
+}
+.metric {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  min-width: 0;
+  box-shadow: var(--soft-shadow);
+}
+.metric strong {
+  display: block;
+  font-size: 26px;
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+}
+.grid {
+  display: grid;
+  gap: 16px;
+}
+.grid.two {
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+}
+.grid.three {
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+}
+.grid.four {
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+}
+.chart-grid article {
+  min-height: 220px;
+}
+.insight-card,
+.export-card,
+.stakeholder-card {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--soft-shadow);
+}
+.toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+  min-width: 150px;
+}
+.search-box {
+  flex: 1 1 280px;
+}
+input,
+select,
+button,
+.button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  font: inherit;
+  background: var(--input-bg);
+  color: var(--ink);
+  max-width: 100%;
+}
+.button,
+button {
+  cursor: pointer;
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  text-decoration: none;
+  font-weight: 700;
+  color: var(--accent);
+  min-width: 0;
+}
+.result-strip {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: 8px;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+.table-wrap.wide table {
+  min-width: 720px;
+}
+.explore-table-wrap table {
+  min-width: 1040px;
+  table-layout: auto;
+}
+.explore-table-wrap th:first-child,
+.explore-table-wrap td:first-child {
+  min-width: 98px;
+  width: 98px;
+}
+.explore-table-wrap th:nth-child(2),
+.explore-table-wrap td:nth-child(2) {
+  min-width: 300px;
+  width: 32%;
+}
+.explore-table-wrap th:nth-child(3),
+.explore-table-wrap td:nth-child(3) {
+  min-width: 190px;
+  width: 20%;
+}
+.explore-table-wrap th:nth-child(4),
+.explore-table-wrap td:nth-child(4),
+.explore-table-wrap th:nth-child(6),
+.explore-table-wrap td:nth-child(6) {
+  min-width: 110px;
+}
+.test-name-cell a,
+.test-name-cell .muted,
+.scope-cell span,
+.signal-cell span {
+  display: block;
+  line-height: 1.28;
+}
+.test-name-cell .muted {
+  margin-top: 4px;
+  font-size: 13px;
+}
+.scope-cell span + span,
+.signal-cell span + span {
+  margin-top: 3px;
+}
+.explore-table-wrap .status {
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+.compare-table table {
+  min-width: 560px;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  table-layout: fixed;
+}
+.kv-table {
+  min-width: 0;
+}
+th,
+td {
+  border-bottom: 1px solid var(--line);
+  padding: 10px;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
+}
+th {
+  background: var(--table-head);
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+.kv-table th {
+  width: 34%;
+  max-width: 180px;
+}
+.kv-table td {
+  width: 66%;
+}
+pre {
+  white-space: pre-wrap;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  max-width: 100%;
+  max-height: 420px;
+}
+pre span[data-line],
+code {
+  display: block;
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+details {
+  margin-top: 10px;
+}
+summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 700;
+}
+.status {
+  display: inline-block;
+  max-width: 100%;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.passed {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+}
+.warning,
+.skipped {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+}
+.failed,
+.broken,
+.failed_broken {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+}
+.unknown {
+  color: var(--muted);
+  background: var(--panel-soft);
+}
+.low {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+}
+.medium {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+}
+.high {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+}
+.score-ring {
+  width: min(150px, 100%);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  margin: 4px 0 14px;
+  background: conic-gradient(var(--ok) 0 75%, var(--panel-soft) 75% 100%);
+  box-shadow: inset 0 0 0 18px var(--panel), var(--soft-shadow);
+}
+.score-ring strong {
+  font-size: 28px;
+}
+.score-ring span {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.score-ring.status-warning {
+  background: conic-gradient(var(--warn) 0 62%, var(--panel-soft) 62% 100%);
+}
+.score-ring.status-failed {
+  background: conic-gradient(var(--danger) 0 45%, var(--panel-soft) 45% 100%);
+}
+.score-ring.status-unknown {
+  background: conic-gradient(var(--muted) 0 20%, var(--panel-soft) 20% 100%);
+}
+.bar,
+.hbar-track {
+  height: 9px;
+  background: var(--panel-soft);
+  border-radius: 999px;
+  overflow: hidden;
+  min-width: 80px;
+}
+.bar span,
+.hbar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.hbar-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) minmax(90px, 2fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin: 9px 0;
+  min-width: 0;
+}
+.hbar-label,
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.donut {
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  box-shadow: inset 0 0 0 24px var(--panel);
+}
+.donut strong {
+  background: var(--panel);
+  border-radius: 999px;
+  padding: 18px 10px;
+  min-width: 72px;
+  text-align: center;
+}
+.legend {
+  display: grid;
+  gap: 7px;
+}
+.legend span {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+}
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+}
+.risk-list,
+.coverage-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.risk-list {
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 4px;
+}
+.risk {
+  border-left: 4px solid var(--accent-2);
+  padding: 10px 12px;
+  background: var(--panel-soft);
+  border-radius: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+.risk.high {
+  border-left-color: var(--danger);
+}
+.risk.medium {
+  border-left-color: var(--warn);
+}
+.risk a,
+.risk .muted {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.share-banner {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 13px 14px;
+  background: color-mix(in srgb, var(--ok) 10%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--ok) 35%, var(--line));
+  border-radius: 8px;
+}
+.safe-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--ok) 35%, var(--line));
+  border-radius: 999px;
+  padding: 6px 10px;
+}
+.export-links {
+  display: grid;
+  gap: 7px;
+}
+.print-summary {
+  display: grid;
+  gap: 16px;
+}
+.tag-cloud {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tag {
+  background: var(--panel-soft);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.matrix-page {
+  display: grid;
+  gap: 18px;
+}
+.matrix-section {
+  overflow: hidden;
+}
+.matrix-heatmap {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+body[data-matrix-view="table"] .matrix-heatmap {
+  display: none;
+}
+body[data-matrix-view="heatmap-only"] .matrix-table {
+  display: none;
+}
+.heat-cell {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--panel-soft);
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.heat-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+.heat-name {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  line-height: 1.25;
+}
+.heat-value {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.heat-bar {
+  height: 11px;
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 4px 0;
+}
+.heat-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--danger), var(--warn), var(--ok));
+}
+.heat-details {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+  display: grid;
+  gap: 3px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.heat-failures {
+  color: var(--muted);
+}
+.explore-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  gap: 12px;
+}
+.test-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--panel);
+  min-width: 0;
+}
+.empty-state {
+  color: var(--muted);
+  padding: 18px;
+  background: var(--panel);
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+}
+img.preview {
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+video {
+  max-width: 100%;
+}
+svg {
+  max-width: 100%;
+  height: auto;
+}
+a {
+  color: var(--accent);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.muted {
+  color: var(--muted);
+}
+[hidden] {
+  display: none !important;
+}
+@media (min-width: 721px) {
+  body {
+    padding-left: var(--sidebar-width);
+  }
+  .nav-shell {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: var(--sidebar-width);
+    display: flex;
+    flex-direction: column;
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--line);
+    padding: 20px 12px;
+    overflow-y: auto;
+  }
+  .app-nav {
+    display: flex;
+    min-height: 100%;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .app-nav a:not(.nav-brand) {
+    display: block;
+    padding: 10px 12px;
+  }
+  .app-nav a:not(.nav-brand):hover {
+    background: var(--nav-hover);
+  }
+  .theme-panel {
+    margin-top: auto;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+  }
+}
+@media (max-width: 720px) {
+  .hero {
+    flex-direction: column;
+    padding: 24px 16px 8px;
+  }
+  .nav-shell {
+    position: sticky;
+    top: 0;
+    display: grid;
+    gap: 8px;
+    padding: 10px 12px;
+    background: color-mix(in srgb, var(--panel) 94%, transparent);
+    border-bottom: 1px solid var(--line);
+    box-shadow: var(--soft-shadow);
+    backdrop-filter: blur(12px);
+  }
+  .mobile-nav-toggle {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 800;
+    background: var(--panel);
+  }
+  .mobile-nav-toggle::after {
+    content: "Open";
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .nav-shell.open .mobile-nav-toggle::after {
+    content: "Close";
+  }
+  .app-nav {
+    display: none;
+    max-height: min(70vh, 440px);
+    overflow: auto;
+    gap: 5px;
+    padding: 8px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .nav-shell.open .app-nav {
+    display: grid;
+  }
+  .nav-brand {
+    margin: 0 0 8px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .app-nav a:not(.nav-brand) {
+    padding: 10px;
+    text-align: left;
+    line-height: 1.2;
+  }
+  .theme-panel {
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+  section {
+    margin: 18px 16px;
+  }
+  .toolbar label {
+    flex: 1 1 100%;
+  }
+  .table-wrap.wide {
+    overflow-x: visible;
+  }
+  .table-wrap.wide table {
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    table-layout: auto;
+  }
+  .table-wrap.wide thead {
+    display: none;
+  }
+  .table-wrap.wide tbody,
+  .table-wrap.wide tr,
+  .table-wrap.wide td {
+    display: block;
+    width: 100%;
+  }
+  .table-wrap.wide tr {
+    margin: 0 0 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    padding: 8px 10px;
+  }
+  .table-wrap.wide td {
+    border-bottom: 1px solid var(--line);
+    padding: 8px 0;
+  }
+  .table-wrap.wide td:last-child {
+    border-bottom: 0;
+  }
+  .table-wrap.wide td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 3px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .table-wrap.wide td[colspan]::before {
+    display: none;
+  }
+  .hbar-label,
+  .truncate {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+  .bar,
+  .hbar-track {
+    min-width: 0;
+    width: 100%;
+  }
+  .hbar-row {
+    grid-template-columns: 1fr;
+  }
+  .metrics {
+    grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  }
+}
 """
 
 
@@ -1625,6 +2544,70 @@ def _metric_with_note(label: str, value: Any, note: Any) -> str:
     return (
         f'<div class="metric" title="{_e(note)}"><strong>{_e(value)}</strong>{_e(label)}'
         f'<br><span class="muted">{_e(note)}</span></div>'
+    )
+
+
+def _signal_counts_view(signals: dict[str, Any]) -> str:
+    return _key_values(_signal_count_values(signals))
+
+
+def _signal_count_values(signals: dict[str, Any]) -> dict[str, Any]:
+    values: dict[str, Any] = {
+        "Artifacts": signals["artifact_count"],
+        "Action Retries": signals["action_retry_count"],
+        "Test Retries": signals["test_retry_count"],
+    }
+    if int(signals.get("healing_event_count", 0) or 0):
+        values["Healing Events"] = signals["healing_event_count"]
+        values["Healing Decisions"] = _inline_counts(signals.get("healing_decisions", {}))
+    return values
+
+
+def _retry_summary_values(signals: dict[str, Any]) -> dict[str, Any]:
+    values: dict[str, Any] = {
+        "Test Retries": signals["test_retry_count"],
+        "Action Retries": signals["action_retry_count"],
+    }
+    if int(signals.get("healing_event_count", 0) or 0):
+        values["Healing Events"] = signals["healing_event_count"]
+    return values
+
+
+def _detail_metrics(
+    test: TestCaseReport,
+    action_retries: list[Any],
+    healing_events: list[dict[str, Any]],
+    artifacts: list[Artifact],
+) -> str:
+    metrics = [
+        _metric("Duration", _format_duration(test.duration_ms)),
+        _metric("Retries", len(test.retries)),
+        _metric("Action Retries", len(action_retries)),
+    ]
+    if healing_events:
+        metrics.append(_metric("Healing Events", len(healing_events)))
+    metrics.append(_metric("Artifacts", len(artifacts)))
+    return "\n  ".join(metrics)
+
+
+def _detail_healing_section(events: list[dict[str, Any]]) -> str:
+    if not events:
+        return ""
+    return f"""
+<section data-filter-root="detail-page">
+  <h2>Healing Events</h2>
+  {_healing_table(events)}
+</section>
+"""
+
+
+def _share_link_card() -> str:
+    return (
+        '<article class="export-card">'
+        "<h2>Copy Share Link</h2>"
+        "<p>Copy a direct link to this report page for stakeholders with access to the report package.</p>"
+        '<button type="button" class="button" data-copy-share-link="">Copy Link</button>'
+        "</article>"
     )
 
 

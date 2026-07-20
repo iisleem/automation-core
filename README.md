@@ -17,7 +17,7 @@ See [Template Repository Strategy](docs/template_strategy.md) for the product-fa
 From GitHub after the repository is published:
 
 ```bash
-pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.10.0"
+pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.11.0"
 ```
 
 For local development:
@@ -39,10 +39,13 @@ pytest
 
 ## Version Notes
 
-`0.10.0` redesigns the static enterprise report visual system across retained portfolio pages and
-single-run reports. It adds a Compare page, quality score, risk signal, default informational gate
+`0.11.0` redesigns the static enterprise report visual system across retained portfolio pages and
+single-run reports. It adds a consistent sidebar/mobile drawer shell, system-default theme with
+light/dark overrides, portfolio Compare, quality score, risk signal, default informational gate
 status, stability, recovery, resource-efficiency, and chart-ready comparison data while preserving
 existing `report-data.json` keys.
+
+`0.10.0` introduced the first retained-report portfolio redesign and comparison data foundation.
 
 `0.9.1` improves small-screen report readability by turning wide run-detail tables into labeled
 mobile cards. `0.9.0` adds retained timestamped report runs and a portfolio dashboard. The shared
@@ -192,8 +195,8 @@ score weights, stability window, or worker-count metadata keys.
 
 Generated reports are safe-sharing enabled by default. Values under sensitive keys or names such as `token`,
 `secret`, `password`, `authorization`, `cookie`, `api_key`, `bearer`, and `session` are replaced with `[redacted]`
-in public-facing HTML, `report-data.json`, `data/run-report.json`, CSV exports, and JSON export bundles. Normal
-metadata values are preserved. Call `generate_reporting_product(..., safe_share=False)` or
+in public-facing HTML, `report-data.json`, `data/run-report.json`, CSV/XLSX/DOCX/SVG exports, and JSON export
+bundles. Normal metadata values are preserved. Call `generate_reporting_product(..., safe_share=False)` or
 `build_report_data(..., safe_share=False)` only for internal raw diagnostics.
 
 The report also writes:

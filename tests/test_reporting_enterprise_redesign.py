@@ -155,11 +155,14 @@ def test_enterprise_report_pages_sidecar_and_portfolio_surface_redesign(tmp_path
     executive_html = (current_dir / "executive.html").read_text(encoding="utf-8")
     compare_html = (current_dir / "compare.html").read_text(encoding="utf-8")
     quality_html = (current_dir / "quality.html").read_text(encoding="utf-8")
+    explore_html = (current_dir / "explore.html").read_text(encoding="utf-8")
     detail_html = next((current_dir / "tests").glob("*.html")).read_text(encoding="utf-8")
     portfolio_html = (root / "index.html").read_text(encoding="utf-8")
     gallery_html = (root / "reports.html").read_text(encoding="utf-8")
+    portfolio_compare_html = (root / "compare.html").read_text(encoding="utf-8")
 
     assert (current_dir / "compare.html").exists()
+    assert (root / "compare.html").exists()
     assert sidecar["compare"]["failure_transitions"] == sidecar["failure_transitions"]["counts"]
     assert sidecar["report_config"]["slow_test_threshold_ms"] == 30_000
     assert sidecar["charts"]["quality_score_components"]
@@ -181,11 +184,27 @@ def test_enterprise_report_pages_sidecar_and_portfolio_surface_redesign(tmp_path
     assert "Failure Impact" in quality_html
     assert "failure-movement" in quality_html
     assert '<section class="grid three" data-filter-root="quality-failures">' not in quality_html
-    assert "overflow-wrap:anywhere" in dashboard_html
+    assert "Scope" in explore_html
+    assert "scope-cell" in explore_html
+    assert "signal-cell" in explore_html
+    assert "overflow-wrap: anywhere" in dashboard_html
     assert 'href="../compare.html"' in detail_html
+    assert "nav-shell" in dashboard_html
+    assert "mobile-nav-toggle" in dashboard_html
+    assert 'data-theme-default="system"' in dashboard_html
+    assert 'data-theme-choice="system"' in dashboard_html
+    assert 'data-theme-choice="light"' in dashboard_html
+    assert 'data-theme-choice="dark"' in dashboard_html
+    assert "@media (prefers-color-scheme: dark)" in dashboard_html
+    assert "--hero-title: #f8fafc" in dashboard_html
+    assert "--dark-heading: #f8fafc" in dashboard_html
+    assert "Healing Events" not in dashboard_html
+    assert "Healing Events" not in detail_html
     assert "Quality Score Trend" in portfolio_html
     assert "Risk Levels" in portfolio_html
     assert "Compare" in gallery_html
+    assert "Compare Reports" in portfolio_compare_html
+    assert "--hero-title: #f8fafc" in portfolio_compare_html
 
 
 def test_enterprise_report_client_rendering_escapes_json_driven_values(tmp_path):
@@ -229,8 +248,9 @@ def test_enterprise_report_client_rendering_escapes_json_driven_values(tmp_path)
     compare_html = (current_dir / "compare.html").read_text(encoding="utf-8")
     portfolio_html = (root / "index.html").read_text(encoding="utf-8")
     gallery_html = (root / "reports.html").read_text(encoding="utf-8")
+    portfolio_compare_html = (root / "compare.html").read_text(encoding="utf-8")
 
-    for html in (explore_html, portfolio_html, gallery_html):
+    for html in (explore_html, portfolio_html, gallery_html, portfolio_compare_html):
         assert "function escapeHtml" in html
         assert "function safeHref" in html
         assert "javascript|data|vbscript" in html
@@ -243,6 +263,8 @@ def test_enterprise_report_client_rendering_escapes_json_driven_values(tmp_path)
     assert "safeHref(item.entry_href)" in portfolio_html
     assert "escapeHtml(item.run_id" in gallery_html
     assert "safeHref(item.entry_href)" in gallery_html
+    assert "escapeHtml(item.run_id" in portfolio_compare_html
+    assert "safeHref(item.entry_href)" in portfolio_compare_html
     assert "className = 'table-wrap wide'" in gallery_html
     assert "hydrateResponsiveTables(root)" in gallery_html
     assert ".compare-table table" in compare_html
@@ -278,11 +300,12 @@ def test_report_client_rendering_does_not_execute_malicious_values_in_browser(tm
         page = browser.new_page(viewport={"width": 900, "height": 700})
         page_errors: list[str] = []
         page.on("pageerror", lambda error: page_errors.append(str(error)))
-        for path in (current_dir / "explore.html", root / "index.html", root / "reports.html"):
+        for path in (current_dir / "explore.html", root / "index.html", root / "reports.html", root / "compare.html"):
             page.goto("file://" + quote(str(path)), wait_until="load")
             page.wait_for_timeout(200)
             assert page_errors == []
-            assert page.evaluate("JSON.stringify(document.body.dataset)") == '{"visualSystem":"enterprise-redesign"}'
+            assert page.evaluate("document.body.dataset.visualSystem") == "enterprise-redesign"
+            assert page.evaluate("document.body.dataset.themeDefault") == "system"
             assert page.locator("img").count() == 0
             assert page.locator("svg[onload], img[onerror]").count() == 0
         page.goto("file://" + quote(str(current_dir / "explore.html")), wait_until="load")
@@ -297,36 +320,119 @@ def test_report_client_rendering_does_not_execute_malicious_values_in_browser(tm
         browser.close()
 
 
+def test_healing_sections_render_only_when_healing_events_exist(tmp_path):
+    no_healing = RunReport(
+        run_id="no-healing-run",
+        project_name="automation-core",
+        framework="pytest",
+        tests=[
+            TestCaseReport(
+                id="retry-only",
+                name="test_retry_only",
+                status="passed",
+                retries=[
+                    RetryAttempt(attempt=1, status="failed"),
+                    RetryAttempt(attempt=2, status="passed"),
+                ],
+            )
+        ],
+    )
+    no_healing_dir = tmp_path / "no-healing"
+
+    generate_reporting_product(no_healing, no_healing_dir, update_history_file=False)
+
+    no_healing_index = (no_healing_dir / "index.html").read_text(encoding="utf-8")
+    no_healing_executive = (no_healing_dir / "executive.html").read_text(encoding="utf-8")
+    no_healing_detail = next((no_healing_dir / "tests").glob("*.html")).read_text(encoding="utf-8")
+    assert "Healing Events" not in no_healing_index
+    assert "Healing Events" not in no_healing_executive
+    assert "Healing Events" not in no_healing_detail
+    assert "No healing events captured" not in no_healing_detail
+    assert "Action Retries" in no_healing_index
+    assert "Test Retries" in no_healing_index
+
+    with_healing = RunReport(
+        run_id="with-healing-run",
+        project_name="automation-core",
+        framework="pytest",
+        tests=[
+            TestCaseReport(
+                id="healed",
+                name="test_real_healing_event",
+                status="passed",
+                metadata={
+                    "healing_events": [
+                        {
+                            "mode": "apply",
+                            "decision": "applied",
+                            "action": "click",
+                            "selected": {"candidate": {"value": "[data-test='sign-in']"}, "score": 0.91},
+                            "reason": "stable locator matched",
+                        }
+                    ]
+                },
+            )
+        ],
+    )
+    with_healing_dir = tmp_path / "with-healing"
+
+    generate_reporting_product(with_healing, with_healing_dir, update_history_file=False)
+
+    with_healing_index = (with_healing_dir / "index.html").read_text(encoding="utf-8")
+    with_healing_detail = next((with_healing_dir / "tests").glob("*.html")).read_text(encoding="utf-8")
+    assert "Healing Events" in with_healing_index
+    assert "Healing Events" in with_healing_detail
+    assert "[data-test=&#x27;sign-in&#x27;]" in with_healing_detail
+
+
 def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    output_dir = tmp_path / "report"
+    root = tmp_path / "portfolio"
+    history_dir = tmp_path / "history"
     log_path = tmp_path / "long-detail.log"
     log_path.write_text(
         "2026-02-05 10:10:10,001 | INFO | framework | "
         "tests.smoke.test_login::test_login_with_a_very_long_context_value_" + ("segment_" * 36),
         encoding="utf-8",
     )
+    previous = RunReport(
+        run_id="previous-overflow-baseline-with-long-id-" + ("segment-" * 10),
+        project_name="automation-core",
+        framework="pytest",
+        generated_at=datetime(2026, 2, 4, tzinfo=UTC),
+        tests=[TestCaseReport(id="previous", name="test_previous", status="passed", domain="web")],
+    )
+    previous_dir = prepare_timestamped_report_dir(root, run_id=previous.run_id, generated_at=previous.generated_at)
+    generate_reporting_product(previous, previous_dir, history_dir=history_dir)
     report = RunReport(
         run_id="narrow-nav-overflow-check",
         project_name="automation-core",
         framework="pytest",
         generated_at=datetime(2026, 2, 5, tzinfo=UTC),
-        matrix_dimensions=("domain",),
+        matrix_dimensions=("domain", "profile", "component", "owner", "context"),
         tests=[
             TestCaseReport(
                 id="long-name",
                 name="test_with_a_long_name_to_keep_the_page_representative",
                 full_name="tests.reports.test_with_a_long_name_to_keep_the_page_representative",
                 status="error",
-                domain="web",
+                domain="web-ui-flow-with-a-very-long-domain-name-for-layout-checking",
+                profile="chromium-desktop-long-profile-name-used-to-check-wrapping",
                 failure_message="setup error " + ("longfailuretoken" * 20),
+                capabilities={"context": "WEBVIEW_com.example.checkout.very.long.context.name"},
+                metadata={
+                    "component": "checkout-component-with-a-long-name-used-for-matrix-layout",
+                    "owner": "quality-platform-owner-with-a-long-team-name",
+                },
                 artifacts=[Artifact(name="long detail log", artifact_type="log", path=str(log_path))],
             ),
             TestCaseReport(id="passed", name="test_passed", status="passed", domain="web"),
         ],
     )
+    output_dir = prepare_timestamped_report_dir(root, run_id=report.run_id, generated_at=report.generated_at)
 
-    generate_reporting_product(report, output_dir)
+    generate_reporting_product(report, output_dir, history_dir=history_dir)
+    generate_report_portfolio(root, current_report_dir=output_dir)
 
     pages = [
         output_dir / "index.html",
@@ -341,28 +447,44 @@ def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
         output_dir / "share.html",
         output_dir / "print-summary.html",
         next((output_dir / "tests").glob("*.html")),
+        root / "index.html",
+        root / "reports.html",
+        root / "compare.html",
+    ]
+    viewports = [
+        {"width": 1440, "height": 1000},
+        {"width": 768, "height": 1024},
+        {"width": 390, "height": 900},
+        {"width": 360, "height": 800},
     ]
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        for viewport in [{"width": 1440, "height": 1000}, {"width": 390, "height": 900}]:
+        for viewport in viewports:
             page = browser.new_page(viewport=viewport)
             for path in pages:
                 page.goto("file://" + quote(str(path)), wait_until="load")
                 page.wait_for_timeout(100)
-                overflow = page.evaluate(
+                if viewport["width"] <= 720:
+                    page.locator(".mobile-nav-toggle").click()
+                    page.wait_for_timeout(50)
+                layout = page.evaluate(
                     """() => {
                       const viewportWidth = document.documentElement.clientWidth;
                       const documentOverflow = Math.max(
                         0,
                         Math.ceil(Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - viewportWidth)
                       );
+                      const isVisible = (node) => {
+                        const style = getComputedStyle(node);
+                        const rect = node.getBoundingClientRect();
+                        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+                      };
+                      const insideAllowedScroll = (node) => Boolean(node.closest('.table-wrap, pre, .app-nav'));
                       const offenders = Array.from(document.body.querySelectorAll('*'))
                         .filter((node) => {
-                          const style = getComputedStyle(node);
-                          if (style.display === 'none' || style.visibility === 'hidden') return false;
+                          if (!isVisible(node) || insideAllowedScroll(node)) return false;
                           const rect = node.getBoundingClientRect();
-                          if (rect.width === 0 || rect.height === 0) return false;
                           return rect.left < -1 || rect.right > viewportWidth + 1;
                         })
                         .map((node) => ({
@@ -373,16 +495,68 @@ def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
                           right: Math.round(node.getBoundingClientRect().right),
                         }))
                         .slice(0, 10);
-                      const navOffenders = Array.from(document.querySelectorAll('.app-nav a'))
-                        .filter((node) => {
-                          const rect = node.getBoundingClientRect();
-                          return rect.left < -1 || rect.right > viewportWidth + 1;
-                        })
-                        .map((node) => node.textContent.trim());
-                      return { documentOverflow, offenders, navOffenders };
+                      const nav = document.querySelector('.app-nav');
+                      const navShell = document.querySelector('[data-nav-shell]');
+                      const toggle = document.querySelector('.mobile-nav-toggle');
+                      const firstContent = Array.from(document.querySelectorAll('.hero, section')).find(isVisible);
+                      const navRect = nav ? nav.getBoundingClientRect() : null;
+                      const shellRect = navShell ? navShell.getBoundingClientRect() : null;
+                      const contentRect = firstContent ? firstContent.getBoundingClientRect() : null;
+                      const desktopNav = viewportWidth > 720 ? {
+                        visible: Boolean(nav && isVisible(nav)),
+                        toggleHidden: Boolean(toggle && getComputedStyle(toggle).display === 'none'),
+                        separated: Boolean(navRect && contentRect && navRect.right <= contentRect.left + 1),
+                        activeLinks: document.querySelectorAll('.app-nav a.active').length,
+                        themeButtons: document.querySelectorAll('[data-theme-choice]').length,
+                      } : null;
+                      const mobileNav = viewportWidth <= 720 ? {
+                        toggleVisible: Boolean(toggle && isVisible(toggle)),
+                        navVisible: Boolean(nav && isVisible(nav)),
+                        contained: Boolean(shellRect && shellRect.left >= -1 && shellRect.right <= viewportWidth + 1),
+                        themeButtons: document.querySelectorAll('[data-theme-choice]').length,
+                      } : null;
+                      const internalContainers = Array.from(document.querySelectorAll('.table-wrap, pre')).map((node) => {
+                        const rect = node.getBoundingClientRect();
+                        const style = getComputedStyle(node);
+                        return {
+                          contained: rect.left >= -1 && rect.right <= viewportWidth + 1,
+                          scrollableSafely: node.scrollWidth <= node.clientWidth + 1 || ['auto', 'scroll', 'visible'].includes(style.overflowX),
+                        };
+                      });
+                      const heatCells = Array.from(document.querySelectorAll('.heat-cell, .test-card, article')).map((node) => {
+                        const rect = node.getBoundingClientRect();
+                        return rect.left >= -1 && rect.right <= viewportWidth + 1;
+                      });
+                      const theme = {
+                        defaultMode: document.body.dataset.themeDefault,
+                        htmlTheme: document.documentElement.dataset.theme,
+                        choices: Array.from(document.querySelectorAll('[data-theme-choice]')).map((node) => node.dataset.themeChoice),
+                      };
+                      return { documentOverflow, offenders, desktopNav, mobileNav, internalContainers, heatCells, theme };
                     }"""
                 )
-                assert overflow == {"documentOverflow": 0, "offenders": [], "navOffenders": []}
+                assert layout["documentOverflow"] == 0
+                assert layout["offenders"] == []
+                assert layout["theme"]["defaultMode"] == "system"
+                assert layout["theme"]["htmlTheme"] in {"system", "light", "dark"}
+                assert layout["theme"]["choices"] == ["system", "light", "dark"]
+                if viewport["width"] > 720:
+                    assert layout["desktopNav"] == {
+                        "visible": True,
+                        "toggleHidden": True,
+                        "separated": True,
+                        "activeLinks": 1,
+                        "themeButtons": 3,
+                    }
+                else:
+                    assert layout["mobileNav"] == {
+                        "toggleVisible": True,
+                        "navVisible": True,
+                        "contained": True,
+                        "themeButtons": 3,
+                    }
+                assert all(item["contained"] and item["scrollableSafely"] for item in layout["internalContainers"])
+                assert all(layout["heatCells"])
             page.close()
         browser.close()
 

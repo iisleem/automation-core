@@ -90,6 +90,7 @@ def generate_report_portfolio(output_dir: str | Path, *, current_report_dir: str
 
     (output_path / PORTFOLIO_DATA_FILE).write_text(json.dumps(to_jsonable(portfolio_data), indent=2), encoding="utf-8")
     (output_path / "reports.html").write_text(_render_reports_page(portfolio_data), encoding="utf-8")
+    (output_path / "compare.html").write_text(_render_compare_page(portfolio_data), encoding="utf-8")
     index_path = output_path / "index.html"
     index_path.write_text(_render_dashboard_page(portfolio_data), encoding="utf-8")
     return index_path
@@ -328,6 +329,49 @@ def _render_reports_page(data: dict[str, Any]) -> str:
     )
 
 
+def _render_compare_page(data: dict[str, Any]) -> str:
+    return _page(
+        "Compare Reports",
+        f"""
+<header class="hero compact">
+  <div>
+    <p class="eyebrow">Report portfolio</p>
+    <h1>Compare Reports</h1>
+    <p>Select retained runs and compare release signals side by side.</p>
+  </div>
+</header>
+{_portfolio_nav("compare")}
+<section class="toolbar compare-toolbar">
+  <label>Baseline
+    <select id="compare-baseline"></select>
+  </label>
+  <label>Compare With
+    <select id="compare-target"></select>
+  </label>
+  <button type="button" id="compare-latest">Latest Pair</button>
+</section>
+<section class="result-strip">
+  <strong id="compare-selection-count">0 selected</strong>
+  <span class="muted">Deltas use the baseline run as the reference.</span>
+</section>
+<section id="portfolio-compare-cards" class="report-card-grid"></section>
+<section class="grid three">
+  <article><h2>Pass Rate</h2><div id="compare-pass-rate"></div></article>
+  <article><h2>Duration</h2><div id="compare-duration"></div></article>
+  <article><h2>Failures</h2><div id="compare-failures"></div></article>
+</section>
+<section>
+  <article><h2>Deltas vs Baseline</h2><div id="compare-deltas" class="table-wrap wide"></div></article>
+</section>
+<section>
+  <article><h2>Feature Impact Across Selected Runs</h2><div id="compare-impact"></div></article>
+</section>
+<script type="application/json" id="portfolio-data-json">{_json_for_script(data)}</script>
+""",
+        "compare",
+    )
+
+
 def _portfolio_toolbar(scope: str) -> str:
     return f"""
 <section class="toolbar" data-portfolio-scope="{_e(scope)}">
@@ -358,117 +402,820 @@ def _portfolio_nav(active: str) -> str:
     links = (
         ("dashboard", "Dashboard", "index.html"),
         ("reports", "Reports", "reports.html"),
+        ("compare", "Compare", "compare.html"),
     )
     return (
-        '<nav class="app-nav" aria-label="Report portfolio navigation">'
+        '<div class="nav-shell" data-nav-shell>'
+        '<button type="button" class="mobile-nav-toggle" data-nav-toggle '
+        'aria-controls="portfolio-navigation" aria-expanded="false">Menu</button>'
+        '<nav class="app-nav" id="portfolio-navigation" aria-label="Report portfolio navigation">'
+        '<a class="nav-brand" href="index.html"><span class="nav-logo">A</span>'
+        "<span><strong>Automation Core</strong><small>Report Portfolio</small></span></a>"
         + "".join(
             f'<a class="{"active" if key == active else ""}" href="{href}">{label}</a>' for key, label, href in links
         )
-        + "</nav>"
+        + _theme_controls()
+        + "</nav></div>"
     )
 
 
 def _page(title: str, body: str, page_kind: str) -> str:
     return f"""<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="system">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{_e(title)}</title>
-  <style>
-    :root {{ color-scheme:light; --ink:#172033; --muted:#5b6472; --line:#dbe3ec; --panel:#fff; --bg:#f5f7fa; --accent:#0f766e; --accent-2:#2563eb; --danger:#b91c1c; --warn:#b45309; --ok:#047857; --shadow:0 12px 30px rgba(15,23,42,.08); }}
-    * {{ box-sizing:border-box; }}
-    body {{ margin:0; font-family:Arial,sans-serif; color:var(--ink); background:linear-gradient(180deg,#eef3f8 0,#f7f9fb 260px,#f5f7fa 100%); overflow-x:hidden; }}
-    .hero {{ background:linear-gradient(135deg,#0d1b2a,#142f43); color:#fff; padding:30px clamp(18px,4vw,42px); display:flex; justify-content:space-between; gap:18px; align-items:flex-start; border-bottom:1px solid rgba(255,255,255,.16); }}
-    .hero.compact {{ padding:22px clamp(18px,4vw,42px); }}
-    h1 {{ margin:0 0 8px; font-size:clamp(24px,3vw,34px); letter-spacing:0; overflow-wrap:anywhere; }}
-    h2 {{ margin:0 0 14px; font-size:18px; letter-spacing:0; }}
-    h3 {{ margin:0 0 8px; font-size:16px; overflow-wrap:anywhere; }}
-    p {{ margin:0; overflow-wrap:anywhere; }}
-    a {{ color:#0f5b99; }}
-    .eyebrow {{ color:#b7c7d7; font-size:12px; text-transform:uppercase; letter-spacing:0; margin-bottom:7px; }}
-    .app-nav {{ position:sticky; top:0; z-index:3; display:flex; gap:6px; flex-wrap:nowrap; overflow-x:auto; padding:12px clamp(18px,4vw,42px); background:rgba(255,255,255,.96); border-bottom:1px solid var(--line); box-shadow:0 1px 0 rgba(15,23,42,.04); scrollbar-gutter:stable; scrollbar-width:thin; -webkit-overflow-scrolling:touch; }}
-    .app-nav::-webkit-scrollbar {{ height:6px; }}
-    .app-nav::-webkit-scrollbar-thumb {{ background:#cbd5e1; border-radius:999px; }}
-    .app-nav a {{ color:#0f5b99; font-weight:700; text-decoration:none; padding:8px 10px; border-radius:8px; white-space:nowrap; }}
-    .app-nav a.active {{ background:#e7f3ff; color:#0b4d83; box-shadow:inset 0 0 0 1px #bfdbfe; }}
-    section {{ margin:22px clamp(18px,4vw,42px); max-width:100%; }}
-    article {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; min-width:0; max-width:100%; overflow:hidden; box-shadow:var(--shadow); }}
-    .toolbar {{ display:flex; flex-wrap:wrap; gap:12px; align-items:end; padding:14px; background:#fff; border:1px solid var(--line); border-radius:8px; }}
-    .toolbar label,.result-strip label {{ display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--muted); font-weight:700; min-width:150px; }}
-    .search-box {{ flex:1 1 300px; }}
-    input,select,button,.button {{ border:1px solid #cbd5e1; border-radius:8px; padding:9px 10px; font:inherit; background:#fff; color:var(--ink); max-width:100%; }}
-    button,.button {{ font-weight:700; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; }}
-    .button.inverse {{ background:#fff; color:#102033; }}
-    .metrics {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; }}
-    .metric {{ background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; min-width:0; box-shadow:0 4px 18px rgba(15,23,42,.05); }}
-    .metric strong {{ display:block; font-size:26px; margin-bottom:4px; overflow-wrap:anywhere; }}
-    .grid {{ display:grid; gap:16px; }}
-    .grid.two {{ grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr)); }}
-    .result-strip {{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; }}
-    .hbar-row {{ display:grid; grid-template-columns:minmax(100px,1fr) minmax(120px,2fr) auto; gap:10px; align-items:center; margin:9px 0; }}
-    .hbar-label {{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }}
-    .hbar-track {{ height:10px; background:#e5e7eb; border-radius:999px; overflow:hidden; }}
-    .hbar-fill {{ display:block; height:100%; background:var(--accent); }}
-    .status {{ display:inline-block; padding:5px 9px; border-radius:999px; font-size:12px; font-weight:700; text-transform:uppercase; white-space:nowrap; line-height:1; }}
-    .passed {{ color:#047857; background:#dff7ed; }}
-    .failed,.broken,.failed_broken {{ color:#b91c1c; background:#fee2e2; }}
-    .skipped,.warning {{ color:#92400e; background:#fef3c7; }}
-    .unknown,.not_configured {{ color:#4b5563; background:#e5e7eb; }}
-    .low {{ color:#047857; background:#dff7ed; }}
-    .medium {{ color:#92400e; background:#fef3c7; }}
-    .high {{ color:#b91c1c; background:#fee2e2; }}
-    .score-line {{ display:grid; gap:6px; min-width:0; justify-items:end; }}
-    .score-line strong {{ font-size:28px; }}
-    .signal-row {{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }}
-    .report-card-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(330px,100%),1fr)); gap:14px; }}
-    .report-card {{ display:grid; gap:12px; align-content:start; }}
-    .card-head {{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }}
-    .card-head > * {{ min-width:0; }}
-    .card-actions {{ display:flex; flex-wrap:wrap; gap:8px; }}
-    .mini-metrics {{ display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }}
-    .mini-metrics span {{ background:#f8fafc; border:1px solid #e9edf2; border-radius:8px; padding:8px; min-width:0; }}
-    .muted {{ color:var(--muted); }}
-    .attention-list {{ display:grid; gap:10px; }}
-    .attention-item {{ border-left:4px solid var(--danger); background:#fff7f7; border-radius:8px; padding:10px 12px; }}
-    .tag-cloud {{ display:flex; flex-wrap:wrap; gap:8px; }}
-    .tag {{ background:#edf2f7; color:#263345; border-radius:999px; padding:5px 8px; font-size:12px; overflow-wrap:anywhere; }}
-    .table-wrap {{ width:100%; max-width:100%; overflow-x:auto; border-radius:8px; }}
-    table {{ border-collapse:collapse; width:100%; min-width:820px; background:#fff; border:1px solid var(--line); table-layout:fixed; }}
-    th,td {{ border-bottom:1px solid #e9edf2; padding:10px; text-align:left; vertical-align:top; overflow-wrap:anywhere; word-break:break-word; min-width:0; }}
-    th {{ background:#eef2f6; color:#263345; }}
-    .empty-state {{ color:var(--muted); padding:18px; background:#fff; border:1px dashed var(--line); border-radius:8px; }}
-    svg {{ width:100%; max-width:100%; height:auto; }}
-    @media (max-width:720px) {{
-      .hero {{ flex-direction:column; }}
-      .toolbar label {{ flex:1 1 100%; }}
-      .hbar-row {{ grid-template-columns:1fr; }}
-      .hbar-label {{ white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere; }}
-      .card-head {{ display:grid; grid-template-columns:1fr; }}
-      .score-line {{ justify-items:start; }}
-      .table-wrap.wide {{ overflow-x:visible; }}
-      .table-wrap.wide table {{ min-width:0; border:0; background:transparent; table-layout:auto; }}
-      .table-wrap.wide thead {{ display:none; }}
-      .table-wrap.wide tbody,.table-wrap.wide tr,.table-wrap.wide td {{ display:block; width:100%; }}
-      .table-wrap.wide tr {{ margin:0 0 12px; border:1px solid var(--line); border-radius:8px; background:#fff; padding:8px 10px; }}
-      .table-wrap.wide td {{ border-bottom:1px solid #e9edf2; padding:8px 0; }}
-      .table-wrap.wide td:last-child {{ border-bottom:0; }}
-      .table-wrap.wide td::before {{ content:attr(data-label); display:block; margin-bottom:3px; color:var(--muted); font-size:11px; font-weight:700; text-transform:uppercase; }}
-      .table-wrap.wide td[colspan]::before {{ display:none; }}
-      .mini-metrics {{ grid-template-columns:repeat(2,1fr); }}
-    }}
-  </style>
+  <script>{_theme_bootstrap_script()}</script>
+  <style>{_portfolio_styles()}</style>
   <script>{_portfolio_script(page_kind)}</script>
 </head>
-<body data-visual-system="enterprise-redesign">
+<body data-visual-system="enterprise-redesign" data-theme-default="system">
 {body}
 </body>
 </html>
 """
 
 
+def _theme_bootstrap_script() -> str:
+    return """(function() {
+  try {
+    var mode = localStorage.getItem('automation-report-theme') || 'system';
+    if (!/^(system|light|dark)$/.test(mode)) mode = 'system';
+    document.documentElement.dataset.theme = mode;
+  } catch (error) {
+    document.documentElement.dataset.theme = 'system';
+  }
+})();"""
+
+
+def _theme_controls() -> str:
+    return (
+        '<div class="theme-panel" aria-label="Appearance">'
+        '<span class="theme-label">Appearance</span>'
+        '<div class="theme-options" role="group" aria-label="Appearance theme">'
+        '<button type="button" data-theme-choice="system" aria-pressed="true" class="active">System</button>'
+        '<button type="button" data-theme-choice="light" aria-pressed="false">Light</button>'
+        '<button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>'
+        "</div></div>"
+    )
+
+
+def _portfolio_styles() -> str:
+    return """
+:root {
+  color-scheme: light dark;
+  --sidebar-width: 268px;
+  --ink: #172033;
+  --heading: #172033;
+  --muted: #5b6472;
+  --line: #dbe3ec;
+  --panel: #ffffff;
+  --panel-soft: #f8fafc;
+  --bg: #f3f6f9;
+  --input-bg: #ffffff;
+  --table-head: #eef3f7;
+  --accent: #2563eb;
+  --accent-2: #7c3aed;
+  --danger: #b91c1c;
+  --warn: #b45309;
+  --ok: #047857;
+  --hero-title: #172033;
+  --hero-text: #526071;
+  --dark-heading: #f8fafc;
+  --sidebar-bg: #eef3f8;
+  --sidebar-ink: #1f2937;
+  --nav-active-bg: #dce8ff;
+  --nav-active-ink: #2563eb;
+  --nav-hover: #e6edf6;
+  --shadow: 0 10px 24px rgba(15, 23, 42, .08);
+  --soft-shadow: 0 3px 12px rgba(15, 23, 42, .05);
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ink: #e7edf7;
+    --heading: #f8fafc;
+    --muted: #a8b3c7;
+    --line: #293548;
+    --panel: #111827;
+    --panel-soft: #162234;
+    --bg: #070b12;
+    --input-bg: #0f172a;
+    --table-head: #182335;
+    --accent: #60a5fa;
+    --accent-2: #a78bfa;
+    --danger: #f87171;
+    --warn: #fbbf24;
+    --ok: #34d399;
+    --hero-title: #f8fafc;
+    --hero-text: #cbd5e1;
+    --sidebar-bg: #0b1220;
+    --sidebar-ink: #e7edf7;
+    --nav-active-bg: #1d3b68;
+    --nav-active-ink: #bfdbfe;
+    --nav-hover: #172033;
+    --shadow: 0 12px 30px rgba(0, 0, 0, .32);
+    --soft-shadow: 0 4px 14px rgba(0, 0, 0, .22);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #e7edf7;
+  --heading: #f8fafc;
+  --muted: #a8b3c7;
+  --line: #293548;
+  --panel: #111827;
+  --panel-soft: #162234;
+  --bg: #070b12;
+  --input-bg: #0f172a;
+  --table-head: #182335;
+  --accent: #60a5fa;
+  --accent-2: #a78bfa;
+  --danger: #f87171;
+  --warn: #fbbf24;
+  --ok: #34d399;
+  --hero-title: #f8fafc;
+  --hero-text: #cbd5e1;
+  --sidebar-bg: #0b1220;
+  --sidebar-ink: #e7edf7;
+  --nav-active-bg: #1d3b68;
+  --nav-active-ink: #bfdbfe;
+  --nav-hover: #172033;
+  --shadow: 0 12px 30px rgba(0, 0, 0, .32);
+  --soft-shadow: 0 4px 14px rgba(0, 0, 0, .22);
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+.hero {
+  color: var(--hero-text);
+  padding: 32px clamp(18px, 4vw, 44px) 10px;
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+}
+.hero.compact {
+  padding-top: 28px;
+}
+h1,
+h2,
+h3 {
+  color: var(--heading);
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+.hero h1 {
+  color: var(--hero-title);
+}
+h1 {
+  margin: 0 0 8px;
+  font-size: clamp(26px, 3vw, 38px);
+  line-height: 1.12;
+}
+h2 {
+  margin: 0 0 14px;
+  font-size: 18px;
+  line-height: 1.3;
+}
+h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+a {
+  color: var(--accent);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.eyebrow {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  margin-bottom: 7px;
+  font-weight: 700;
+}
+.nav-shell {
+  z-index: 20;
+}
+.mobile-nav-toggle {
+  display: none;
+}
+.app-nav {
+  min-width: 0;
+}
+.app-nav a {
+  color: var(--sidebar-ink);
+  font-weight: 700;
+  text-decoration: none;
+  border-radius: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.app-nav a.active {
+  background: var(--nav-active-bg);
+  color: var(--nav-active-ink);
+  box-shadow: inset 3px 0 0 var(--nav-active-ink);
+}
+.nav-brand {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 4px 5px 16px;
+  color: var(--sidebar-ink);
+}
+.nav-brand small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 400;
+}
+.nav-logo {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 800;
+}
+.theme-panel {
+  display: grid;
+  gap: 8px;
+}
+.theme-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.theme-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+}
+.theme-options button {
+  border: 0;
+  border-radius: 7px;
+  padding: 8px 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.theme-options button.active,
+.theme-options button[aria-pressed="true"] {
+  background: var(--panel);
+  color: var(--heading);
+  box-shadow: var(--soft-shadow);
+}
+section {
+  margin: 22px clamp(18px, 4vw, 44px);
+  max-width: 100%;
+}
+article {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--soft-shadow);
+}
+.toolbar label,
+.result-strip label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+  min-width: 150px;
+}
+.search-box {
+  flex: 1 1 300px;
+}
+input,
+select,
+button,
+.button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  font: inherit;
+  background: var(--input-bg);
+  color: var(--ink);
+  max-width: 100%;
+}
+button,
+.button {
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.button.inverse {
+  background: var(--panel);
+  color: var(--heading);
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+.metric {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  min-width: 0;
+  box-shadow: var(--soft-shadow);
+}
+.metric strong {
+  display: block;
+  font-size: 26px;
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+}
+.grid {
+  display: grid;
+  gap: 16px;
+}
+.grid.two {
+  grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+}
+.grid.three {
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+}
+.result-strip {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.hbar-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(120px, 2fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin: 9px 0;
+  min-width: 0;
+}
+.hbar-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.hbar-track {
+  height: 10px;
+  background: var(--panel-soft);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.hbar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.status {
+  display: inline-block;
+  max-width: 100%;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  white-space: normal;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.passed {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+}
+.failed,
+.broken,
+.failed_broken {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+}
+.skipped,
+.warning {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+}
+.unknown,
+.not_configured {
+  color: var(--muted);
+  background: var(--panel-soft);
+}
+.low {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+}
+.medium {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+}
+.high {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+}
+.score-line {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  justify-items: end;
+}
+.score-line strong {
+  font-size: 28px;
+}
+.signal-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.report-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr));
+  gap: 14px;
+}
+.report-card {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+.card-head > * {
+  min-width: 0;
+}
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.mini-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.mini-metrics span {
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  min-width: 0;
+}
+.muted {
+  color: var(--muted);
+}
+.attention-list,
+.impact-list {
+  display: grid;
+  gap: 10px;
+}
+.attention-item,
+.impact-item {
+  border-left: 4px solid var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--panel));
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-width: 0;
+}
+.impact-runs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.impact-pill {
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line));
+  color: var(--danger);
+  border-radius: 999px;
+  padding: 5px 9px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tag {
+  background: var(--panel-soft);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: 8px;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 820px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  table-layout: fixed;
+}
+th,
+td {
+  border-bottom: 1px solid var(--line);
+  padding: 10px;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
+}
+th {
+  background: var(--table-head);
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+.empty-state {
+  color: var(--muted);
+  padding: 18px;
+  background: var(--panel);
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+}
+svg {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}
+@media (min-width: 721px) {
+  body {
+    padding-left: var(--sidebar-width);
+  }
+  .nav-shell {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: var(--sidebar-width);
+    display: flex;
+    flex-direction: column;
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--line);
+    padding: 20px 12px;
+    overflow-y: auto;
+  }
+  .app-nav {
+    display: flex;
+    min-height: 100%;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .app-nav a:not(.nav-brand) {
+    display: block;
+    padding: 10px 12px;
+  }
+  .app-nav a:not(.nav-brand):hover {
+    background: var(--nav-hover);
+  }
+  .theme-panel {
+    margin-top: auto;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+  }
+}
+@media (max-width: 720px) {
+  .hero {
+    flex-direction: column;
+    padding: 24px 16px 8px;
+  }
+  .nav-shell {
+    position: sticky;
+    top: 0;
+    display: grid;
+    gap: 8px;
+    padding: 10px 12px;
+    background: color-mix(in srgb, var(--panel) 94%, transparent);
+    border-bottom: 1px solid var(--line);
+    box-shadow: var(--soft-shadow);
+    backdrop-filter: blur(12px);
+  }
+  .mobile-nav-toggle {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 800;
+    background: var(--panel);
+  }
+  .mobile-nav-toggle::after {
+    content: "Open";
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .nav-shell.open .mobile-nav-toggle::after {
+    content: "Close";
+  }
+  .app-nav {
+    display: none;
+    max-height: min(70vh, 440px);
+    overflow: auto;
+    gap: 5px;
+    padding: 8px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .nav-shell.open .app-nav {
+    display: grid;
+  }
+  .nav-brand {
+    margin: 0 0 8px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .app-nav a:not(.nav-brand) {
+    padding: 10px;
+    text-align: left;
+    line-height: 1.2;
+  }
+  .theme-panel {
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+  section {
+    margin: 18px 16px;
+  }
+  .toolbar label {
+    flex: 1 1 100%;
+  }
+  .hbar-row {
+    grid-template-columns: 1fr;
+  }
+  .hbar-label {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+  .card-head {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .score-line {
+    justify-items: start;
+  }
+  .table-wrap.wide {
+    overflow-x: visible;
+  }
+  .table-wrap.wide table {
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    table-layout: auto;
+  }
+  .table-wrap.wide thead {
+    display: none;
+  }
+  .table-wrap.wide tbody,
+  .table-wrap.wide tr,
+  .table-wrap.wide td {
+    display: block;
+    width: 100%;
+  }
+  .table-wrap.wide tr {
+    margin: 0 0 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    padding: 8px 10px;
+  }
+  .table-wrap.wide td {
+    border-bottom: 1px solid var(--line);
+    padding: 8px 0;
+  }
+  .table-wrap.wide td:last-child {
+    border-bottom: 0;
+  }
+  .table-wrap.wide td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 3px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .table-wrap.wide td[colspan]::before {
+    display: none;
+  }
+  .mini-metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+"""
+
+
 def _portfolio_script(page_kind: str) -> str:
     return f"""
+function setupTheme() {{
+  const allowed = new Set(['system', 'light', 'dark']);
+  const storageKey = 'automation-report-theme';
+  const saved = (() => {{
+    try {{ return localStorage.getItem(storageKey) || 'system'; }}
+    catch (error) {{ return 'system'; }}
+  }})();
+  const apply = (mode) => {{
+    const theme = allowed.has(mode) ? mode : 'system';
+    document.documentElement.dataset.theme = theme;
+    document.body.dataset.theme = theme;
+    document.querySelectorAll('[data-theme-choice]').forEach((button) => {{
+      const active = button.dataset.themeChoice === theme;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }});
+    try {{ localStorage.setItem(storageKey, theme); }} catch (error) {{}}
+  }};
+  document.querySelectorAll('[data-theme-choice]').forEach((button) => {{
+    button.addEventListener('click', () => apply(button.dataset.themeChoice));
+  }});
+  apply(saved);
+}}
+function setupNavigation() {{
+  const shell = document.querySelector('[data-nav-shell]');
+  if (!shell) return;
+  const toggle = shell.querySelector('[data-nav-toggle]');
+  const setOpen = (open) => {{
+    shell.classList.toggle('open', open);
+    if (toggle) toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }};
+  if (toggle) toggle.addEventListener('click', () => setOpen(!shell.classList.contains('open')));
+  shell.querySelectorAll('.app-nav a').forEach((link) => {{
+    link.addEventListener('click', () => {{
+      if (window.matchMedia('(max-width: 720px)').matches) setOpen(false);
+    }});
+  }});
+  window.addEventListener('keydown', (event) => {{
+    if (event.key === 'Escape') setOpen(false);
+  }});
+  window.matchMedia('(min-width: 721px)').addEventListener('change', () => setOpen(false));
+}}
 function portfolioData() {{
   const node = document.getElementById('portfolio-data-json');
   return node ? JSON.parse(node.textContent) : {{reports: [], filter_options: {{}}}};
@@ -632,6 +1379,68 @@ function renderGallery() {{
   root.className = 'report-card-grid';
   root.innerHTML = items.map(reportCard).join('') || '<p class="empty-state">No reports match the filters.</p>';
 }}
+function setupCompareOptions(data) {{
+  const reports = data.reports || [];
+  const options = reports.map((item, index) => `<option value="${{index}}">${{escapeHtml(item.run_id || item.generated_display || `Run ${{index + 1}}`)}}</option>`).join('');
+  const baseline = document.getElementById('compare-baseline');
+  const target = document.getElementById('compare-target');
+  if (!baseline || !target) return;
+  if (!baseline.dataset.ready) {{
+    baseline.innerHTML = options;
+    target.innerHTML = options;
+    baseline.value = reports.length > 1 ? '1' : '0';
+    target.value = '0';
+    baseline.dataset.ready = 'true';
+    target.dataset.ready = 'true';
+  }}
+}}
+function selectedCompareReports(data) {{
+  const reports = data.reports || [];
+  const baselineIndex = Number(document.getElementById('compare-baseline')?.value || 0);
+  const targetIndex = Number(document.getElementById('compare-target')?.value || 0);
+  const selected = [reports[baselineIndex], reports[targetIndex]].filter(Boolean);
+  return selected.filter((item, index) => selected.findIndex((candidate) => candidate.run_dir === item.run_dir) === index);
+}}
+function renderCompare() {{
+  const data = portfolioData();
+  setupCompareOptions(data);
+  const selected = selectedCompareReports(data);
+  const count = document.getElementById('compare-selection-count');
+  if (count) count.textContent = `${{selected.length}} selected`;
+  setHtml('portfolio-compare-cards', selected.map(reportCard).join('') || '<p class="empty-state">No retained runs available.</p>');
+  setHtml('compare-pass-rate', barChart(Object.fromEntries(selected.map((item) => [item.run_id, item.pass_rate])), 'No pass-rate data.'));
+  setHtml('compare-duration', barChart(Object.fromEntries(selected.map((item) => [item.run_id, Math.round(num(item.duration_ms) / 1000)])), 'No duration data.'));
+  setHtml('compare-failures', barChart(Object.fromEntries(selected.map((item) => [item.run_id, item.failed_total])), 'No failures in selected runs.'));
+  setHtml('compare-deltas', compareDeltaTable(selected));
+  setHtml('compare-impact', compareImpact(selected));
+  hydrateResponsiveTables(document.getElementById('compare-deltas') || document);
+}}
+function compareDeltaTable(selected) {{
+  if (selected.length < 2) return '<p class="empty-state">Select two retained runs to calculate deltas.</p>';
+  const baseline = selected[0];
+  const target = selected[1];
+  const rows = [
+    ['Pass Rate', `${{target.pass_rate}}%`, `${{baseline.pass_rate}}%`, deltaLabel(num(target.pass_rate) - num(baseline.pass_rate), '%')],
+    ['Failures', target.failed_total, baseline.failed_total, deltaLabel(num(target.failed_total) - num(baseline.failed_total))],
+    ['Flaky', target.flaky, baseline.flaky, deltaLabel(num(target.flaky) - num(baseline.flaky))],
+    ['Duration', target.duration_display, baseline.duration_display, formatDuration(num(target.duration_ms) - num(baseline.duration_ms))]
+  ];
+  return `<table><thead><tr><th>Metric</th><th>Compare</th><th>Baseline</th><th>Delta</th></tr></thead><tbody>${{rows.map((row) => `<tr><td>${{escapeHtml(row[0])}}</td><td>${{escapeHtml(row[1])}}</td><td>${{escapeHtml(row[2])}}</td><td>${{escapeHtml(row[3])}}</td></tr>`).join('')}}</tbody></table>`;
+}}
+function compareImpact(selected) {{
+  if (!selected.length) return '<p class="empty-state">No selected runs.</p>';
+  const categories = new Map();
+  selected.forEach((item) => {{
+    Object.entries(item.failure_categories || {{}}).forEach(([category, count]) => {{
+      if (!Number(count || 0)) return;
+      const runs = categories.get(category) || [];
+      runs.push(`${{item.run_id}} · ${{count}}`);
+      categories.set(category, runs);
+    }});
+  }});
+  if (!categories.size) return '<p class="empty-state">No failure categories across selected runs.</p>';
+  return `<div class="impact-list">${{Array.from(categories.entries()).map(([category, runs]) => `<div class="impact-item"><strong>${{escapeHtml(category)}}</strong><div class="impact-runs">${{runs.map((label) => `<span class="impact-pill">${{escapeHtml(label)}}</span>`).join('')}}</div></div>`).join('')}}</div>`;
+}}
 function reportCard(item) {{
   const scope = (item.profiles || []).join(', ') || (item.environments || []).join(', ') || '-';
   return `<article class="report-card"><div class="card-head"><div><span class="status ${{statusClass(item.status)}}">${{escapeHtml(item.status)}}</span><h3><a href="${{safeHref(item.entry_href)}}">${{escapeHtml(item.run_id || 'run')}}</a></h3><p class="muted">${{escapeHtml(item.generated_display)}} · ${{escapeHtml(item.framework || '-')}}</p></div><div class="score-line"><strong>${{escapeHtml(qualityScore(item))}}</strong><span class="status ${{statusClass(item.risk_level)}}">${{escapeHtml(item.risk_level || 'low')}}</span></div></div><div class="mini-metrics"><span><strong>${{num(item.total)}}</strong><br>Tests</span><span><strong>${{num(item.failed_total)}}</strong><br>Failures</span><span><strong>${{num(item.flaky)}}</strong><br>Flaky</span><span><strong>${{escapeHtml(item.duration_display)}}</strong><br>Duration</span></div><p class="muted">${{escapeHtml(item.project_name || '-')}} · ${{escapeHtml(scope)}}</p><p class="muted">New ${{num(item.new_failure_count)}} · Known ${{num(item.known_failure_count)}} · Resolved ${{num(item.resolved_failure_count)}} · Pass delta ${{escapeHtml(deltaLabel(item.pass_rate_delta, '%'))}}</p><div class="card-actions"><a class="button" href="${{safeHref(item.entry_href)}}">Dashboard</a><a class="button" href="${{safeHref(item.executive_href)}}">Executive</a><a class="button" href="${{safeHref(item.compare_href)}}">Compare</a><a class="button" href="${{safeHref(item.tests_href)}}">Tests</a><a class="button" href="${{safeHref(item.share_href)}}">Share</a></div></article>`;
@@ -660,15 +1469,26 @@ function formatDuration(ms) {{
   return `${{Math.round(value)}}ms`;
 }}
 function setupPortfolio() {{
+  setupTheme();
+  setupNavigation();
   const data = portfolioData();
   populateFilters(data);
   const rerender = () => {{
     if ('{page_kind}' === 'reports') renderGallery();
+    else if ('{page_kind}' === 'compare') renderCompare();
     else renderDashboard();
   }};
-  document.querySelectorAll('[data-portfolio-search],[data-portfolio-filter],#gallery-view').forEach((node) => {{
+  document.querySelectorAll('[data-portfolio-search],[data-portfolio-filter],#gallery-view,#compare-baseline,#compare-target').forEach((node) => {{
     node.addEventListener('input', rerender);
     node.addEventListener('change', rerender);
+  }});
+  const latest = document.getElementById('compare-latest');
+  if (latest) latest.addEventListener('click', () => {{
+    const baseline = document.getElementById('compare-baseline');
+    const target = document.getElementById('compare-target');
+    if (baseline) baseline.value = (data.reports || []).length > 1 ? '1' : '0';
+    if (target) target.value = '0';
+    rerender();
   }});
   document.querySelectorAll('[data-portfolio-reset]').forEach((node) => node.addEventListener('click', () => {{
     document.querySelectorAll('[data-portfolio-search]').forEach((input) => input.value = '');

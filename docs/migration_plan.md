@@ -7,13 +7,13 @@
 في كل repo، أضف dependency بعد نشر GitHub tag:
 
 ```text
-automation-core @ git+https://github.com/iisleem/automation-core.git@v0.10.0
+automation-core @ git+https://github.com/iisleem/automation-core.git@v0.11.0
 ```
 
 أو لاحقاً إذا تم نشرها كـ package:
 
 ```text
-automation-core==0.10.0
+automation-core==0.11.0
 ```
 
 ## المرحلة 2: compatibility wrappers
@@ -400,6 +400,6 @@ pytest
 
 1. إنشاء repo عام `iisleem/automation-core`.
 2. رفع الكود.
-3. عمل release tag ثابت، مثل `v0.10.0`.
+3. عمل release tag ثابت، مثل `v0.11.0`.
 4. ربط repo بنفس GitHub Project: `https://github.com/users/iisleem/projects/4`.
 5. تحديث dependencies في web/mobile/api إلى tag ثابت.
