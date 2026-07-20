@@ -1224,6 +1224,96 @@ summary {
   grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
 }
 
+.report-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 18px;
+  overflow: hidden;
+}
+
+.card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.card-head > div {
+  min-width: 0;
+}
+
+.card-head h3 {
+  margin: 6px 0 4px;
+  font-size: 16px;
+  line-height: 1.15;
+}
+
+.card-head h3 a {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.score-line {
+  display: grid;
+  justify-items: end;
+  align-content: start;
+  gap: 6px;
+  min-width: 76px;
+  max-width: 104px;
+  text-align: right;
+}
+
+.score-line strong {
+  color: var(--text);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 28px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.score-line .status {
+  justify-self: end;
+  min-width: max-content;
+}
+
+.mini-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mini-metrics span {
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  background: var(--surfaceAlt);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.mini-metrics strong {
+  color: var(--text);
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
 .explore-card-grid {
   grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
 }
@@ -1495,6 +1585,28 @@ img.preview {
   }
 
   .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .card-head {
+    grid-template-columns: 1fr;
+  }
+
+  .score-line {
+    grid-auto-flow: column;
+    justify-content: start;
+    justify-items: start;
+    align-items: center;
+    min-width: 0;
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .score-line strong {
+    font-size: 24px;
+  }
+
+  .mini-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
