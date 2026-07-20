@@ -198,6 +198,19 @@ p {
   overflow-wrap: anywhere;
 }
 
+ul,
+ol {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 a {
   color: var(--link);
   text-decoration: none;
@@ -581,6 +594,8 @@ article {
   min-width: 0;
   color: var(--faint);
   font-size: 12px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .mini-stat-row strong {
@@ -590,6 +605,8 @@ article {
   font-size: 17px;
   line-height: 1.15;
   font-weight: 600;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .mini-stat-row .failed-stat strong {
@@ -1479,6 +1496,15 @@ img.preview {
 
   .metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mini-stat-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+  }
+
+  .mini-stat-row strong {
+    font-size: 15px;
   }
 
   .metric strong {
