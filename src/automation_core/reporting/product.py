@@ -19,6 +19,7 @@ from automation_core.reporting.analysis import (
     flaky_analysis,
     summarize_run,
 )
+from automation_core.reporting.design_system import report_design_styles
 from automation_core.reporting.events import ReportingEvent, build_timeline_events
 from automation_core.reporting.history import load_history, trend_points, update_history
 from automation_core.reporting.insights import ReportInsightConfig
@@ -537,8 +538,6 @@ def _render_dashboard(
     speed = fastest_slowest_tests(report)
     flaky = flaky_analysis(report)
     trend = trend_points(history_entries)
-    health = report_data["run"]["health"]
-    signals = report_data["signals"]
     aggregates = report_data["aggregates"]
     rows = "\n".join(_test_row(test, details.get(test.id, "#")) for test in report.tests)
 
@@ -547,13 +546,21 @@ def _render_dashboard(
         f"""
 <header class="hero">
   <div>
-    <p class="eyebrow">{_e(report.project_name or "automation")}</p>
+    <p class="eyebrow">Overview</p>
     <h1>Automation Report</h1>
     <p>{_e(report.framework or "shared reporting")} · {_e(_format_datetime(summary["latest_run"]))}</p>
   </div>
   <span class="status {summary["status"]}">{_e(summary["status"])}</span>
 </header>
 {_nav("dashboard")}
+<section class="toolbar" data-filter-toolbar="dashboard">
+  <label class="search-box">Quick search
+    <input type="search" id="dashboard-search" placeholder="Search tests, failures, artifacts">
+  </label>
+  <a class="button" id="dashboard-explore-link" href="explore.html">Open Explore</a>
+</section>
+{_dashboard_hero_cards(summary, report_data)}
+{_dashboard_insights(summary, report_data)}
 <section class="metrics">
   {_metric("Total", summary["total"])}
   {_metric("Passed", summary["passed"])}
@@ -563,33 +570,7 @@ def _render_dashboard(
   {_metric("Pass Rate", f"{summary['pass_rate']}%")}
   {_metric("Duration", _format_duration(summary["duration_ms"]))}
 </section>
-<section class="toolbar" data-filter-toolbar="dashboard">
-  <label class="search-box">Quick search
-    <input type="search" id="dashboard-search" placeholder="Search tests, failures, artifacts">
-  </label>
-  <a class="button" id="dashboard-explore-link" href="explore.html">Open Explore</a>
-</section>
-<section class="grid two">
-  <article>
-    <h2>Run Health</h2>
-    {
-            _key_values(
-                {
-                    "Pass Rate": f"{health['pass_rate']}%",
-                    "Pass Rate Change": _format_delta(health.get("pass_rate_delta"), suffix="%"),
-                    "Failure Change": _format_delta(health.get("failed_delta")),
-                    "Flaky Change": _format_delta(health.get("flaky_delta")),
-                    "Duration Change": _format_duration_delta(health.get("duration_delta_ms")),
-                    "Previous Run": health.get("previous_run_id") or "-",
-                }
-            )
-        }
-  </article>
-  <article>
-    <h2>Signal Counts</h2>
-    {_signal_counts_view(signals)}
-  </article>
-</section>
+{_signal_chip_strip(report_data["signals"])}
 <section class="grid three">
   <article class="insight-card">
     <h2>Quality Score</h2>
@@ -1275,16 +1256,16 @@ def _render_history_page(report: RunReport, history_entries: list[dict[str, Any]
 
 def _nav(active: str, *, prefix: str = "") -> str:
     items = (
-        ("dashboard", "Dashboard", "index.html"),
+        ("dashboard", "Overview", "index.html"),
         ("executive", "Executive", "executive.html"),
-        ("quality", "Quality", "quality.html"),
+        ("quality", "Quality Gates", "quality.html"),
         ("compare", "Compare", "compare.html"),
         ("explore", "Tests", "explore.html"),
         ("timeline", "Timeline", "timeline.html"),
         ("flaky", "Flaky", "flaky.html"),
         ("matrix", "Matrix", "matrix.html"),
         ("history", "History", "history.html"),
-        ("share", "Share", "share.html"),
+        ("share", "Share & Export", "share.html"),
     )
     links = "".join(
         f'<a class="{"active" if key == active else ""}" href="{_e(prefix + href)}">{_e(label)}</a>'
@@ -1310,7 +1291,7 @@ def _page(title: str, body: str) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{_e(title)}</title>
   <script>{_theme_bootstrap_script()}</script>
-  <style>{_product_styles()}</style>
+  <style>{report_design_styles()}</style>
   <script>
     function setupTheme() {{
       const allowed = new Set(['system', 'light', 'dark']);
@@ -1346,13 +1327,13 @@ def _page(title: str, body: str) -> str:
       if (toggle) toggle.addEventListener('click', () => setOpen(!shell.classList.contains('open')));
       shell.querySelectorAll('.app-nav a').forEach((link) => {{
         link.addEventListener('click', () => {{
-          if (window.matchMedia('(max-width: 720px)').matches) setOpen(false);
+          if (window.matchMedia('(max-width: 900px)').matches) setOpen(false);
         }});
       }});
       window.addEventListener('keydown', (event) => {{
         if (event.key === 'Escape') setOpen(false);
       }});
-      window.matchMedia('(min-width: 721px)').addEventListener('change', () => setOpen(false));
+      window.matchMedia('(min-width: 901px)').addEventListener('change', () => setOpen(false));
     }}
     function setupShareLinks() {{
       document.querySelectorAll('[data-copy-share-link]').forEach((button) => {{
@@ -1575,967 +1556,6 @@ def _theme_controls() -> str:
     )
 
 
-def _product_styles() -> str:
-    return """
-:root {
-  color-scheme: light dark;
-  --sidebar-width: 268px;
-  --ink: #172033;
-  --heading: #172033;
-  --muted: #5b6472;
-  --line: #dbe3ec;
-  --panel: #ffffff;
-  --panel-soft: #f8fafc;
-  --bg: #f3f6f9;
-  --input-bg: #ffffff;
-  --table-head: #eef3f7;
-  --accent: #2563eb;
-  --accent-2: #7c3aed;
-  --danger: #b91c1c;
-  --warn: #b45309;
-  --ok: #047857;
-  --hero-title: #172033;
-  --hero-text: #526071;
-  --dark-heading: #f8fafc;
-  --sidebar-bg: #eef3f8;
-  --sidebar-ink: #1f2937;
-  --nav-active-bg: #dce8ff;
-  --nav-active-ink: #2563eb;
-  --nav-hover: #e6edf6;
-  --shadow: 0 10px 24px rgba(15, 23, 42, .08);
-  --soft-shadow: 0 3px 12px rgba(15, 23, 42, .05);
-}
-:root[data-theme="light"] {
-  color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --ink: #e7edf7;
-    --heading: #f8fafc;
-    --muted: #a8b3c7;
-    --line: #293548;
-    --panel: #111827;
-    --panel-soft: #162234;
-    --bg: #070b12;
-    --input-bg: #0f172a;
-    --table-head: #182335;
-    --accent: #60a5fa;
-    --accent-2: #a78bfa;
-    --danger: #f87171;
-    --warn: #fbbf24;
-    --ok: #34d399;
-    --hero-title: #f8fafc;
-    --hero-text: #cbd5e1;
-    --sidebar-bg: #0b1220;
-    --sidebar-ink: #e7edf7;
-    --nav-active-bg: #1d3b68;
-    --nav-active-ink: #bfdbfe;
-    --nav-hover: #172033;
-    --shadow: 0 12px 30px rgba(0, 0, 0, .32);
-    --soft-shadow: 0 4px 14px rgba(0, 0, 0, .22);
-  }
-}
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --ink: #e7edf7;
-  --heading: #f8fafc;
-  --muted: #a8b3c7;
-  --line: #293548;
-  --panel: #111827;
-  --panel-soft: #162234;
-  --bg: #070b12;
-  --input-bg: #0f172a;
-  --table-head: #182335;
-  --accent: #60a5fa;
-  --accent-2: #a78bfa;
-  --danger: #f87171;
-  --warn: #fbbf24;
-  --ok: #34d399;
-  --hero-title: #f8fafc;
-  --hero-text: #cbd5e1;
-  --sidebar-bg: #0b1220;
-  --sidebar-ink: #e7edf7;
-  --nav-active-bg: #1d3b68;
-  --nav-active-ink: #bfdbfe;
-  --nav-hover: #172033;
-  --shadow: 0 12px 30px rgba(0, 0, 0, .32);
-  --soft-shadow: 0 4px 14px rgba(0, 0, 0, .22);
-}
-* {
-  box-sizing: border-box;
-}
-html,
-body {
-  width: 100%;
-  max-width: 100%;
-  overflow-x: hidden;
-}
-body {
-  margin: 0;
-  font-family: Arial, sans-serif;
-  color: var(--ink);
-  background: var(--bg);
-}
-.hero {
-  color: var(--hero-text);
-  padding: 32px clamp(18px, 4vw, 44px) 10px;
-  display: flex;
-  justify-content: space-between;
-  gap: 18px;
-  align-items: flex-start;
-}
-.hero.compact {
-  padding-top: 28px;
-}
-h1,
-h2,
-h3 {
-  color: var(--heading);
-  letter-spacing: 0;
-  overflow-wrap: anywhere;
-}
-.hero h1 {
-  color: var(--hero-title);
-}
-h1 {
-  margin: 0 0 8px;
-  font-size: clamp(26px, 3vw, 38px);
-  line-height: 1.12;
-}
-h2 {
-  margin: 0 0 14px;
-  font-size: 18px;
-  line-height: 1.3;
-}
-h3 {
-  margin: 0 0 10px;
-  font-size: 15px;
-}
-p {
-  margin: 0;
-  color: inherit;
-  overflow-wrap: anywhere;
-}
-.eyebrow {
-  color: var(--muted);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0;
-  margin-bottom: 7px;
-  font-weight: 700;
-  overflow-wrap: anywhere;
-}
-.nav-shell {
-  z-index: 20;
-}
-.mobile-nav-toggle {
-  display: none;
-}
-.app-nav {
-  min-width: 0;
-}
-.app-nav a {
-  color: var(--sidebar-ink);
-  font-weight: 700;
-  text-decoration: none;
-  border-radius: 8px;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.app-nav a.active {
-  background: var(--nav-active-bg);
-  color: var(--nav-active-ink);
-  box-shadow: inset 3px 0 0 var(--nav-active-ink);
-}
-.nav-brand {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 18px;
-  padding: 4px 5px 16px;
-  color: var(--sidebar-ink);
-}
-.nav-brand small {
-  display: block;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.35;
-  font-weight: 400;
-}
-.nav-logo {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  border-radius: 8px;
-  background: var(--accent);
-  color: #ffffff;
-  font-weight: 800;
-}
-.theme-panel {
-  display: grid;
-  gap: 8px;
-}
-.theme-label {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-.theme-options {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
-  padding: 4px;
-  border-radius: 8px;
-  background: var(--panel-soft);
-  border: 1px solid var(--line);
-}
-.theme-options button {
-  border: 0;
-  border-radius: 7px;
-  padding: 8px 6px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-.theme-options button.active,
-.theme-options button[aria-pressed="true"] {
-  background: var(--panel);
-  color: var(--heading);
-  box-shadow: var(--soft-shadow);
-}
-section {
-  margin: 22px clamp(18px, 4vw, 44px);
-  max-width: 100%;
-}
-article {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 16px;
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-  box-shadow: var(--shadow);
-}
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 12px;
-}
-.metrics.compact {
-  margin-bottom: 12px;
-}
-.metric {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 14px;
-  min-width: 0;
-  box-shadow: var(--soft-shadow);
-}
-.metric strong {
-  display: block;
-  font-size: 26px;
-  margin-bottom: 4px;
-  overflow-wrap: anywhere;
-}
-.grid {
-  display: grid;
-  gap: 16px;
-}
-.grid.two {
-  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
-}
-.grid.three {
-  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
-}
-.grid.four {
-  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
-}
-.chart-grid article {
-  min-height: 220px;
-}
-.insight-card,
-.export-card,
-.stakeholder-card {
-  display: grid;
-  gap: 10px;
-  align-content: start;
-}
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: end;
-  padding: 14px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: var(--soft-shadow);
-}
-.toolbar label {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--muted);
-  font-weight: 700;
-  min-width: 150px;
-}
-.search-box {
-  flex: 1 1 280px;
-}
-input,
-select,
-button,
-.button {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 9px 10px;
-  font: inherit;
-  background: var(--input-bg);
-  color: var(--ink);
-  max-width: 100%;
-}
-.button,
-button {
-  cursor: pointer;
-}
-.button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  text-decoration: none;
-  font-weight: 700;
-  color: var(--accent);
-  min-width: 0;
-}
-.result-strip {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-.table-wrap {
-  width: 100%;
-  max-width: 100%;
-  overflow-x: auto;
-  border-radius: 8px;
-  scrollbar-gutter: stable;
-  -webkit-overflow-scrolling: touch;
-}
-.table-wrap.wide table {
-  min-width: 720px;
-}
-.explore-table-wrap table {
-  min-width: 1040px;
-  table-layout: auto;
-}
-.explore-table-wrap th:first-child,
-.explore-table-wrap td:first-child {
-  min-width: 98px;
-  width: 98px;
-}
-.explore-table-wrap th:nth-child(2),
-.explore-table-wrap td:nth-child(2) {
-  min-width: 300px;
-  width: 32%;
-}
-.explore-table-wrap th:nth-child(3),
-.explore-table-wrap td:nth-child(3) {
-  min-width: 190px;
-  width: 20%;
-}
-.explore-table-wrap th:nth-child(4),
-.explore-table-wrap td:nth-child(4),
-.explore-table-wrap th:nth-child(6),
-.explore-table-wrap td:nth-child(6) {
-  min-width: 110px;
-}
-.test-name-cell a,
-.test-name-cell .muted,
-.scope-cell span,
-.signal-cell span {
-  display: block;
-  line-height: 1.28;
-}
-.test-name-cell .muted {
-  margin-top: 4px;
-  font-size: 13px;
-}
-.scope-cell span + span,
-.signal-cell span + span {
-  margin-top: 3px;
-}
-.explore-table-wrap .status {
-  white-space: nowrap;
-  word-break: normal;
-  overflow-wrap: normal;
-}
-.compare-table table {
-  min-width: 560px;
-}
-table {
-  border-collapse: collapse;
-  width: 100%;
-  min-width: 0;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  table-layout: fixed;
-}
-.kv-table {
-  min-width: 0;
-}
-th,
-td {
-  border-bottom: 1px solid var(--line);
-  padding: 10px;
-  text-align: left;
-  vertical-align: top;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  min-width: 0;
-}
-th {
-  background: var(--table-head);
-  color: var(--muted);
-  text-transform: uppercase;
-  font-size: 12px;
-  letter-spacing: 0;
-}
-.kv-table th {
-  width: 34%;
-  max-width: 180px;
-}
-.kv-table td {
-  width: 66%;
-}
-pre {
-  white-space: pre-wrap;
-  overflow: auto;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  background: var(--panel-soft);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 10px;
-  max-width: 100%;
-  max-height: 420px;
-}
-pre span[data-line],
-code {
-  display: block;
-  max-width: 100%;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-details {
-  margin-top: 10px;
-}
-summary {
-  cursor: pointer;
-  color: var(--accent);
-  font-weight: 700;
-}
-.status {
-  display: inline-block;
-  max-width: 100%;
-  padding: 5px 9px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  line-height: 1.15;
-  overflow-wrap: anywhere;
-  white-space: normal;
-}
-.passed {
-  color: var(--ok);
-  background: color-mix(in srgb, var(--ok) 16%, transparent);
-}
-.warning,
-.skipped {
-  color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 18%, transparent);
-}
-.failed,
-.broken,
-.failed_broken {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 16%, transparent);
-}
-.unknown {
-  color: var(--muted);
-  background: var(--panel-soft);
-}
-.low {
-  color: var(--ok);
-  background: color-mix(in srgb, var(--ok) 16%, transparent);
-}
-.medium {
-  color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 18%, transparent);
-}
-.high {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 16%, transparent);
-}
-.score-ring {
-  width: min(150px, 100%);
-  aspect-ratio: 1;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  margin: 4px 0 14px;
-  background: conic-gradient(var(--ok) 0 75%, var(--panel-soft) 75% 100%);
-  box-shadow: inset 0 0 0 18px var(--panel), var(--soft-shadow);
-}
-.score-ring strong {
-  font-size: 28px;
-}
-.score-ring span {
-  color: var(--muted);
-  font-size: 12px;
-  text-transform: uppercase;
-  font-weight: 700;
-}
-.score-ring.status-warning {
-  background: conic-gradient(var(--warn) 0 62%, var(--panel-soft) 62% 100%);
-}
-.score-ring.status-failed {
-  background: conic-gradient(var(--danger) 0 45%, var(--panel-soft) 45% 100%);
-}
-.score-ring.status-unknown {
-  background: conic-gradient(var(--muted) 0 20%, var(--panel-soft) 20% 100%);
-}
-.bar,
-.hbar-track {
-  height: 9px;
-  background: var(--panel-soft);
-  border-radius: 999px;
-  overflow: hidden;
-  min-width: 80px;
-}
-.bar span,
-.hbar-fill {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-}
-.hbar-row {
-  display: grid;
-  grid-template-columns: minmax(90px, 1fr) minmax(90px, 2fr) auto;
-  gap: 10px;
-  align-items: center;
-  margin: 9px 0;
-  min-width: 0;
-}
-.hbar-label,
-.truncate {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-.donut-wrap {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-.donut {
-  width: 132px;
-  height: 132px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  box-shadow: inset 0 0 0 24px var(--panel);
-}
-.donut strong {
-  background: var(--panel);
-  border-radius: 999px;
-  padding: 18px 10px;
-  min-width: 72px;
-  text-align: center;
-}
-.legend {
-  display: grid;
-  gap: 7px;
-}
-.legend span {
-  display: inline-flex;
-  gap: 7px;
-  align-items: center;
-}
-.swatch {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  display: inline-block;
-}
-.risk-list,
-.coverage-list {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-}
-.risk-list {
-  max-height: 360px;
-  overflow: auto;
-  padding-right: 4px;
-}
-.risk {
-  border-left: 4px solid var(--accent-2);
-  padding: 10px 12px;
-  background: var(--panel-soft);
-  border-radius: 6px;
-  min-width: 0;
-  overflow: hidden;
-}
-.risk.high {
-  border-left-color: var(--danger);
-}
-.risk.medium {
-  border-left-color: var(--warn);
-}
-.risk a,
-.risk .muted {
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-.share-banner {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  align-items: center;
-  padding: 13px 14px;
-  background: color-mix(in srgb, var(--ok) 10%, var(--panel));
-  border: 1px solid color-mix(in srgb, var(--ok) 35%, var(--line));
-  border-radius: 8px;
-}
-.safe-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-weight: 700;
-  color: var(--ok);
-  background: color-mix(in srgb, var(--ok) 14%, var(--panel));
-  border: 1px solid color-mix(in srgb, var(--ok) 35%, var(--line));
-  border-radius: 999px;
-  padding: 6px 10px;
-}
-.export-links {
-  display: grid;
-  gap: 7px;
-}
-.print-summary {
-  display: grid;
-  gap: 16px;
-}
-.tag-cloud {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.tag {
-  background: var(--panel-soft);
-  color: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 5px 8px;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.matrix-page {
-  display: grid;
-  gap: 18px;
-}
-.matrix-section {
-  overflow: hidden;
-}
-.matrix-heatmap {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
-  gap: 10px;
-  margin-bottom: 14px;
-}
-body[data-matrix-view="table"] .matrix-heatmap {
-  display: none;
-}
-body[data-matrix-view="heatmap-only"] .matrix-table {
-  display: none;
-}
-.heat-cell {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 14px;
-  background: var(--panel-soft);
-  min-width: 0;
-  display: grid;
-  gap: 12px;
-  align-content: start;
-}
-.heat-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  min-width: 0;
-}
-.heat-name {
-  font-weight: 700;
-  overflow-wrap: anywhere;
-  min-width: 0;
-  line-height: 1.25;
-}
-.heat-value {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
-.heat-bar {
-  height: 11px;
-  background: color-mix(in srgb, var(--muted) 18%, transparent);
-  border-radius: 999px;
-  overflow: hidden;
-  margin: 4px 0;
-}
-.heat-bar span {
-  display: block;
-  height: 100%;
-  background: linear-gradient(90deg, var(--danger), var(--warn), var(--ok));
-}
-.heat-details {
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.45;
-  display: grid;
-  gap: 3px;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-.heat-failures {
-  color: var(--muted);
-}
-.explore-card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
-  gap: 12px;
-}
-.test-card {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 14px;
-  background: var(--panel);
-  min-width: 0;
-}
-.empty-state {
-  color: var(--muted);
-  padding: 18px;
-  background: var(--panel);
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-}
-img.preview {
-  max-width: 100%;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-}
-video {
-  max-width: 100%;
-}
-svg {
-  max-width: 100%;
-  height: auto;
-}
-a {
-  color: var(--accent);
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-li {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-.muted {
-  color: var(--muted);
-}
-[hidden] {
-  display: none !important;
-}
-@media (min-width: 721px) {
-  body {
-    padding-left: var(--sidebar-width);
-  }
-  .nav-shell {
-    position: fixed;
-    inset: 0 auto 0 0;
-    width: var(--sidebar-width);
-    display: flex;
-    flex-direction: column;
-    background: var(--sidebar-bg);
-    border-right: 1px solid var(--line);
-    padding: 20px 12px;
-    overflow-y: auto;
-  }
-  .app-nav {
-    display: flex;
-    min-height: 100%;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .app-nav a:not(.nav-brand) {
-    display: block;
-    padding: 10px 12px;
-  }
-  .app-nav a:not(.nav-brand):hover {
-    background: var(--nav-hover);
-  }
-  .theme-panel {
-    margin-top: auto;
-    padding-top: 16px;
-    border-top: 1px solid var(--line);
-  }
-}
-@media (max-width: 720px) {
-  .hero {
-    flex-direction: column;
-    padding: 24px 16px 8px;
-  }
-  .nav-shell {
-    position: sticky;
-    top: 0;
-    display: grid;
-    gap: 8px;
-    padding: 10px 12px;
-    background: color-mix(in srgb, var(--panel) 94%, transparent);
-    border-bottom: 1px solid var(--line);
-    box-shadow: var(--soft-shadow);
-    backdrop-filter: blur(12px);
-  }
-  .mobile-nav-toggle {
-    display: flex;
-    width: 100%;
-    align-items: center;
-    justify-content: space-between;
-    font-weight: 800;
-    background: var(--panel);
-  }
-  .mobile-nav-toggle::after {
-    content: "Open";
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 700;
-  }
-  .nav-shell.open .mobile-nav-toggle::after {
-    content: "Close";
-  }
-  .app-nav {
-    display: none;
-    max-height: min(70vh, 440px);
-    overflow: auto;
-    gap: 5px;
-    padding: 8px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-  }
-  .nav-shell.open .app-nav {
-    display: grid;
-  }
-  .nav-brand {
-    margin: 0 0 8px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--line);
-  }
-  .app-nav a:not(.nav-brand) {
-    padding: 10px;
-    text-align: left;
-    line-height: 1.2;
-  }
-  .theme-panel {
-    padding-top: 10px;
-    border-top: 1px solid var(--line);
-  }
-  section {
-    margin: 18px 16px;
-  }
-  .toolbar label {
-    flex: 1 1 100%;
-  }
-  .table-wrap.wide {
-    overflow-x: visible;
-  }
-  .table-wrap.wide table {
-    min-width: 0;
-    border: 0;
-    background: transparent;
-    table-layout: auto;
-  }
-  .table-wrap.wide thead {
-    display: none;
-  }
-  .table-wrap.wide tbody,
-  .table-wrap.wide tr,
-  .table-wrap.wide td {
-    display: block;
-    width: 100%;
-  }
-  .table-wrap.wide tr {
-    margin: 0 0 12px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: var(--panel);
-    padding: 8px 10px;
-  }
-  .table-wrap.wide td {
-    border-bottom: 1px solid var(--line);
-    padding: 8px 0;
-  }
-  .table-wrap.wide td:last-child {
-    border-bottom: 0;
-  }
-  .table-wrap.wide td::before {
-    content: attr(data-label);
-    display: block;
-    margin-bottom: 3px;
-    color: var(--muted);
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-  }
-  .table-wrap.wide td[colspan]::before {
-    display: none;
-  }
-  .hbar-label,
-  .truncate {
-    white-space: normal;
-    overflow: visible;
-    text-overflow: clip;
-    overflow-wrap: anywhere;
-  }
-  .bar,
-  .hbar-track {
-    min-width: 0;
-    width: 100%;
-  }
-  .hbar-row {
-    grid-template-columns: 1fr;
-  }
-  .metrics {
-    grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
-  }
-}
-"""
-
-
 def _metric(label: str, value: Any) -> str:
     return f'<div class="metric"><strong>{_e(value)}</strong>{_e(label)}</div>'
 
@@ -2563,6 +1583,15 @@ def _signal_count_values(signals: dict[str, Any]) -> dict[str, Any]:
     return values
 
 
+def _signal_chip_strip(signals: dict[str, Any]) -> str:
+    chips = "".join(
+        f'<span class="signal-chip">{_e(label)} <strong>{_e(value)}</strong></span>'
+        for label, value in _signal_count_values(signals).items()
+        if label != "Healing Decisions"
+    )
+    return f'<section class="signal-chip-strip">{chips}</section>'
+
+
 def _retry_summary_values(signals: dict[str, Any]) -> dict[str, Any]:
     values: dict[str, Any] = {
         "Test Retries": signals["test_retry_count"],
@@ -2571,6 +1600,157 @@ def _retry_summary_values(signals: dict[str, Any]) -> dict[str, Any]:
     if int(signals.get("healing_event_count", 0) or 0):
         values["Healing Events"] = signals["healing_event_count"]
     return values
+
+
+def _dashboard_hero_cards(summary: dict[str, Any], report_data: dict[str, Any]) -> str:
+    quality_score = report_data.get("quality_score", {})
+    score = _score_value(quality_score)
+    score_percent = _score_percent(quality_score)
+    gate = report_data.get("default_gate_status", {})
+    gate_status = str(gate.get("status") or summary.get("status") or "unknown")
+    gate_label = "Release Ready" if gate_status == "passed" else _humanize_label(gate_status)
+    ring_color = (
+        "var(--pass)" if gate_status == "passed" else "var(--fail)" if gate_status == "failed" else "var(--flaky)"
+    )
+    failing = _blocking_failure_count(summary)
+    total = int(summary.get("total", 0) or 0)
+    pass_rate = summary.get("pass_rate", 0)
+    latest = report_data.get("run", {}).get("health", {})
+    delta = _format_delta(latest.get("pass_rate_delta"), suffix="%")
+    delta_html = "" if delta == "-" else f'<span class="delta-pill">{_e(delta)}</span>'
+    return f"""
+<section class="grid two overview-hero">
+  <article class="health-card">
+    <div class="health-card-main">
+      <div class="score-ring status-{_e(quality_score.get("status", "unknown"))}" style="background:conic-gradient({ring_color} 0 {score_percent:g}%, var(--surfaceAlt) {score_percent:g}% 100%)">
+        <strong>{_e(score)}</strong>
+        <span>Health</span>
+      </div>
+      <div>
+        <span class="status {_e(gate_status)}">{_e(gate_label)}</span>
+        <p class="muted">{_e(_gate_sentence(summary, gate))}</p>
+      </div>
+    </div>
+    {_status_segment_bar(summary)}
+  </article>
+  <article class="pass-card">
+    <div class="card-label">Pass Rate</div>
+    <div class="hero-number">{_e(pass_rate)}% {delta_html}</div>
+    {_sparkline(report_data.get("history", {}).get("trend_points", []), fallback=float(pass_rate or 0))}
+    <div class="mini-stat-row">
+      <span><strong>{total}</strong>Tests</span>
+      <span class="failed-stat"><strong>{failing}</strong>Failed</span>
+      <span class="flaky-stat"><strong>{summary.get("flaky", 0)}</strong>Flaky</span>
+      <span><strong>{_e(_format_duration(summary.get("duration_ms", 0)))}</strong>Duration</span>
+    </div>
+  </article>
+</section>
+"""
+
+
+def _dashboard_insights(summary: dict[str, Any], report_data: dict[str, Any]) -> str:
+    wins = _key_win_items(summary, report_data)
+    focus = _focus_area_items(summary, report_data)
+    return f"""
+<section class="grid two insight-pair">
+  <article class="insight-card key-wins">
+    <h2>Key Wins</h2>
+    <ul>{"".join(f"<li>{_e(item)}</li>" for item in wins)}</ul>
+  </article>
+  <article class="insight-card focus-areas">
+    <h2>Focus Areas</h2>
+    <ul>{"".join(f"<li>{_e(item)}</li>" for item in focus)}</ul>
+  </article>
+</section>
+"""
+
+
+def _gate_sentence(summary: dict[str, Any], gate: dict[str, Any]) -> str:
+    failed = _blocking_failure_count(summary)
+    pass_rate = summary.get("pass_rate", 0)
+    if gate.get("message"):
+        return str(gate["message"])
+    if failed:
+        return f"{failed} failing test(s) need attention before release; current pass rate is {pass_rate}%."
+    if int(summary.get("flaky", 0) or 0):
+        return f"Pass rate is {pass_rate}% with flaky signal(s) to review before final sign-off."
+    if int(summary.get("total", 0) or 0):
+        return f"Adjusted pass rate {pass_rate}% meets the default release signal for this run."
+    return "No tests were captured for release evaluation."
+
+
+def _status_segment_bar(summary: dict[str, Any]) -> str:
+    values = [
+        ("passed", int(summary.get("passed", 0) or 0), "Passed"),
+        ("failed", _blocking_failure_count(summary), "Failed"),
+        ("skipped", int(summary.get("skipped", 0) or 0), "Skipped"),
+        ("flaky", int(summary.get("flaky", 0) or 0), "Flaky"),
+    ]
+    total = sum(value for _, value, _ in values)
+    if not total:
+        return '<p class="empty-state">No status distribution available.</p>'
+    segments = "".join(
+        f'<span class="segment segment-{_e(key)}" style="width:{(value / total) * 100:.3f}%"></span>'
+        for key, value, _ in values
+        if value
+    )
+    legend = "".join(
+        f'<span><i class="swatch segment-{_e(key)}"></i>{_e(label)} {value}</span>'
+        for key, value, label in values
+        if value
+    )
+    return f'<div class="status-segments">{segments}</div><div class="legend segment-legend">{legend}</div>'
+
+
+def _sparkline(points: list[dict[str, Any]], *, fallback: float) -> str:
+    series = [float(point.get("pass_rate", 0) or 0) for point in points[-8:]]
+    if not series:
+        series = [fallback, max(0, fallback - 4), min(100, fallback + 3), fallback]
+    width = 260
+    height = 58
+    if len(series) == 1:
+        x_values = [width / 2]
+    else:
+        x_values = [(index / (len(series) - 1)) * (width - 24) + 12 for index in range(len(series))]
+    y_values = [height - 8 - (value / 100) * (height - 16) for value in series]
+    path = " ".join(f"{x:.1f},{y:.1f}" for x, y in zip(x_values, y_values, strict=False))
+    return (
+        f'<svg class="mini-sparkline" viewBox="0 0 {width} {height}" role="img" aria-label="Pass rate trend">'
+        f'<polyline points="{path}" fill="none" stroke="var(--pass)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>'
+        "</svg>"
+    )
+
+
+def _key_win_items(summary: dict[str, Any], report_data: dict[str, Any]) -> list[str]:
+    wins: list[str] = []
+    if not _blocking_failure_count(summary) and int(summary.get("total", 0) or 0):
+        wins.append(f"Run is passing at {summary.get('pass_rate', 0)}% pass rate.")
+    if int(summary.get("passed", 0) or 0):
+        wins.append(f"{summary.get('passed', 0)} test(s) passed and are available for traceability.")
+    resolved = report_data.get("failure_transitions", {}).get("counts", {}).get("resolved", 0)
+    if resolved:
+        wins.append(f"{resolved} previously failing test(s) are resolved in this run.")
+    healing = int(report_data.get("signals", {}).get("healing_event_count", 0) or 0)
+    if healing:
+        wins.append(f"{healing} healing event(s) were captured for review.")
+    return wins or ["No positive release signal is available yet."]
+
+
+def _focus_area_items(summary: dict[str, Any], report_data: dict[str, Any]) -> list[str]:
+    focus: list[str] = []
+    failed = _blocking_failure_count(summary)
+    if failed:
+        focus.append(f"{failed} blocking failure(s) need triage before release.")
+    flaky = int(summary.get("flaky", 0) or 0)
+    if flaky:
+        focus.append(f"{flaky} flaky signal(s) reduce confidence in this run.")
+    risk = report_data.get("risk_signal", {})
+    if risk.get("summary") and risk.get("level") != "low":
+        focus.append(str(risk["summary"]))
+    slow = len(report_data.get("top_slow_tests", []) or [])
+    if slow:
+        focus.append(f"{slow} slow test(s) should be reviewed for runtime impact.")
+    return focus or ["No immediate focus areas detected."]
 
 
 def _detail_metrics(
@@ -2876,7 +2056,8 @@ def _test_row(test: TestCaseReport, href: str) -> str:
     return (
         f'<tr data-filter-row data-search="{_e(_test_search(test))}" data-status="{_e(test.status)}">'
         f'<td><span class="status {test.status}">{_e(test.status)}</span></td>'
-        f'<td><a href="{_e(href)}">{_e(test.name)}</a><br><span class="muted">{_e(test.full_name)}</span></td>'
+        f'<td class="test-name-cell"><a href="{_e(href)}" title="{_e(test.name)}">{_e(test.name)}</a>'
+        f'<span class="muted" title="{_e(test.full_name or test.id)}">{_e(test.full_name)}</span></td>'
         f"<td>{_e(profile)}</td>"
         f"<td>{_format_duration(test.duration_ms)}</td><td>{_e(_failure_cell(test))}</td></tr>"
     )
@@ -3008,8 +2189,9 @@ def _matrix_heatmap(values: dict[str, dict[str, Any]]) -> str:
     for name, counts in values.items():
         pass_rate = float(counts.get("pass_rate", 0) or 0)
         failures = _blocking_failure_count(counts)
+        status = _matrix_status(counts)
         cells.append(
-            f'<div class="heat-cell" data-filter-row data-search="{_e(name)} {_e(_inline_counts(counts.get("failure_categories", {})))}" data-status="{_e(_matrix_status(counts))}">'
+            f'<div class="heat-cell status-{_e(status)}" data-filter-row data-search="{_e(name)} {_e(_inline_counts(counts.get("failure_categories", {})))}" data-status="{_e(status)}">'
             f'<div class="heat-head"><span class="heat-name">{_e(name)}</span><strong class="heat-value">{pass_rate:g}%</strong></div>'
             f'<div class="heat-bar"><span style="width:{max(3, min(100, round(pass_rate)))}%"></span></div>'
             f'<p class="heat-details"><span>{counts.get("total", 0)} tests · {failures} failed</span>'

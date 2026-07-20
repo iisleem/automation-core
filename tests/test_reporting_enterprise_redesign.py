@@ -195,16 +195,26 @@ def test_enterprise_report_pages_sidecar_and_portfolio_surface_redesign(tmp_path
     assert 'data-theme-choice="system"' in dashboard_html
     assert 'data-theme-choice="light"' in dashboard_html
     assert 'data-theme-choice="dark"' in dashboard_html
+    assert "max-width: 900px" in dashboard_html
+    assert "min-width: 901px" in dashboard_html
+    assert "max-width: 720px" not in dashboard_html
+    assert "min-width: 721px" not in dashboard_html
     assert "@media (prefers-color-scheme: dark)" in dashboard_html
-    assert "--hero-title: #f8fafc" in dashboard_html
-    assert "--dark-heading: #f8fafc" in dashboard_html
+    assert 'font-family: "IBM Plex Sans"' in dashboard_html
+    assert "--sidebar-width: 236px" in dashboard_html
+    assert "--bg: oklch(98% 0.004 240)" in dashboard_html
+    assert "--surface: oklch(24% 0.016 255)" in dashboard_html
+    assert "overview-hero" in dashboard_html
+    assert "Key Wins" in dashboard_html
+    assert "Focus Areas" in dashboard_html
     assert "Healing Events" not in dashboard_html
     assert "Healing Events" not in detail_html
+    assert "Portfolio Dashboard" in portfolio_html
     assert "Quality Score Trend" in portfolio_html
     assert "Risk Levels" in portfolio_html
     assert "Compare" in gallery_html
     assert "Compare Reports" in portfolio_compare_html
-    assert "--hero-title: #f8fafc" in portfolio_compare_html
+    assert "--sidebar-width: 236px" in portfolio_compare_html
 
 
 def test_enterprise_report_client_rendering_escapes_json_driven_values(tmp_path):
@@ -465,7 +475,7 @@ def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
             for path in pages:
                 page.goto("file://" + quote(str(path)), wait_until="load")
                 page.wait_for_timeout(100)
-                if viewport["width"] <= 720:
+                if viewport["width"] < 900:
                     page.locator(".mobile-nav-toggle").click()
                     page.wait_for_timeout(50)
                 layout = page.evaluate(
@@ -502,14 +512,14 @@ def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
                       const navRect = nav ? nav.getBoundingClientRect() : null;
                       const shellRect = navShell ? navShell.getBoundingClientRect() : null;
                       const contentRect = firstContent ? firstContent.getBoundingClientRect() : null;
-                      const desktopNav = viewportWidth > 720 ? {
+                      const desktopNav = viewportWidth >= 900 ? {
                         visible: Boolean(nav && isVisible(nav)),
                         toggleHidden: Boolean(toggle && getComputedStyle(toggle).display === 'none'),
                         separated: Boolean(navRect && contentRect && navRect.right <= contentRect.left + 1),
                         activeLinks: document.querySelectorAll('.app-nav a.active').length,
                         themeButtons: document.querySelectorAll('[data-theme-choice]').length,
                       } : null;
-                      const mobileNav = viewportWidth <= 720 ? {
+                      const mobileNav = viewportWidth < 900 ? {
                         toggleVisible: Boolean(toggle && isVisible(toggle)),
                         navVisible: Boolean(nav && isVisible(nav)),
                         contained: Boolean(shellRect && shellRect.left >= -1 && shellRect.right <= viewportWidth + 1),
@@ -540,7 +550,7 @@ def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
                 assert layout["theme"]["defaultMode"] == "system"
                 assert layout["theme"]["htmlTheme"] in {"system", "light", "dark"}
                 assert layout["theme"]["choices"] == ["system", "light", "dark"]
-                if viewport["width"] > 720:
+                if viewport["width"] >= 900:
                     assert layout["desktopNav"] == {
                         "visible": True,
                         "toggleHidden": True,
