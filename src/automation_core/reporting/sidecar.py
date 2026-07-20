@@ -14,6 +14,7 @@ from automation_core.reporting.events import ReportingEvent, build_timeline_even
 from automation_core.reporting.history import trend_points
 from automation_core.reporting.insights import ReportInsightConfig, build_enterprise_insights
 from automation_core.reporting.models import Artifact, RunReport, TestCaseReport, to_jsonable
+from automation_core.reporting.platforms import classify_platform, platform_breakdown
 from automation_core.reporting.quality import QualityGate, QualityGateConfig, evaluate_quality_gates
 from automation_core.reporting.redaction import redact_payload, redact_report, redaction_manifest
 from automation_core.reporting.status import is_blocking_failure_status, normalized_status
@@ -70,6 +71,7 @@ def build_report_data(
         },
         "test_index": test_index,
         "aggregates": aggregates,
+        "platforms": aggregates["platforms"],
         "charts": {
             "status_distribution": aggregates["status_distribution"],
             "duration_buckets": aggregates["duration_buckets"],
@@ -157,6 +159,7 @@ def _merge_redaction(primary: dict[str, Any] | None, secondary: dict[str, Any] |
 
 
 def _test_index(report: RunReport, details: dict[str, str]) -> list[dict[str, Any]]:
+    framework_hint = f"{report.framework} {report.project_name}".strip()
     flaky_items = flaky_analysis(report)
     flaky_by_test: dict[str, list[dict[str, Any]]] = {}
     for item in flaky_items:
@@ -204,6 +207,7 @@ def _test_index(report: RunReport, details: dict[str, str]) -> list[dict[str, An
             "metadata": test.metadata,
             "capabilities": test.capabilities,
         }
+        record["platform_type"] = classify_platform(record, framework_hint=framework_hint)
         record["search_text"] = _search_text(record)
         index.append(record)
     return index
@@ -252,6 +256,7 @@ def _aggregates(report: RunReport, test_index: list[dict[str, Any]]) -> dict[str
         "artifact_types": dict(sorted(artifact_types.items())),
         "coverage": _coverage_dimensions(test_index),
         "filter_options": _filter_options(test_index),
+        "platforms": dict(platform_breakdown(test_index)),
     }
 
 

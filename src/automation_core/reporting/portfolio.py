@@ -9,6 +9,7 @@ from pathlib import Path
 from shutil import move
 from typing import Any
 
+from automation_core.reporting import portfolio_render
 from automation_core.reporting.design_system import report_design_styles
 from automation_core.reporting.models import to_jsonable
 
@@ -90,10 +91,10 @@ def generate_report_portfolio(output_dir: str | Path, *, current_report_dir: str
     portfolio_data = build_portfolio_data(reports, output_path, current_report_dir=current_report_dir)
 
     (output_path / PORTFOLIO_DATA_FILE).write_text(json.dumps(to_jsonable(portfolio_data), indent=2), encoding="utf-8")
-    (output_path / "reports.html").write_text(_render_reports_page(portfolio_data), encoding="utf-8")
-    (output_path / "compare.html").write_text(_render_compare_page(portfolio_data), encoding="utf-8")
+    (output_path / "reports.html").write_text(portfolio_render.render_reports(portfolio_data), encoding="utf-8")
+    (output_path / "compare.html").write_text(portfolio_render.render_compare(portfolio_data), encoding="utf-8")
     index_path = output_path / "index.html"
-    index_path.write_text(_render_dashboard_page(portfolio_data), encoding="utf-8")
+    index_path.write_text(portfolio_render.render_dashboard(portfolio_data), encoding="utf-8")
     return index_path
 
 
@@ -157,6 +158,8 @@ def _report_entry(output_path: Path, run_dir: Path, report_data: dict[str, Any])
         report_data.get("resource_efficiency", {}) if isinstance(report_data.get("resource_efficiency"), dict) else {}
     )
     health = report_data.get("run", {}).get("health", {}) if isinstance(report_data.get("run"), dict) else {}
+    platforms = report_data.get("platforms", {}) if isinstance(report_data.get("platforms"), dict) else {}
+    gate = report_data.get("default_gate_status", {}) if isinstance(report_data.get("default_gate_status"), dict) else {}
     failed_total = _blocking_failure_count(summary)
     run_dir_href = os.path.relpath(run_dir, output_path)
     generated_at = str(summary.get("latest_run") or "")
@@ -220,7 +223,12 @@ def _report_entry(output_path: Path, run_dir: Path, report_data: dict[str, Any])
         "failed_delta": health.get("failed_delta"),
         "flaky_delta": health.get("flaky_delta"),
         "duration_delta_ms": health.get("duration_delta_ms"),
+        "platforms": platforms,
+        "platform_names": [name.capitalize() for name in platforms],
     }
+    gate_passed = str(gate.get("status", "")).lower() == "passed"
+    entry["readiness"] = "ready" if gate_passed else "blocked"
+    entry["readiness_label"] = "Ready" if gate_passed else "Blocked"
     entry["search_text"] = _search_text(entry)
     return entry
 

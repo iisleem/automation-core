@@ -13,6 +13,7 @@ from shutil import copy2
 from typing import Any
 from urllib.parse import urlparse
 
+from automation_core.reporting import run_render
 from automation_core.reporting.analysis import (
     failure_summary,
     fastest_slowest_tests,
@@ -65,7 +66,7 @@ def generate_reporting_product(
         assert_valid_report(report)
 
     output_report, redaction = redact_report(report, enabled=safe_share)
-    details = _write_test_pages(output_report, tests_dir, output_path, safe_share=safe_share)
+    details = _detail_hrefs(output_report)
     history_entries = _history_entries(output_report, history_dir, update_history_file, history_limit)
     timeline = build_timeline_events(output_report)
     report_data = build_report_data(
@@ -82,24 +83,20 @@ def generate_reporting_product(
     (data_dir / "run-report.json").write_text(json.dumps(output_report.to_dict(), indent=2), encoding="utf-8")
     (output_path / "report-data.json").write_text(json.dumps(report_data, indent=2), encoding="utf-8")
     _write_share_exports(output_report, report_data, output_path)
-    (output_path / "quality.html").write_text(_render_quality_page(output_report, report_data), encoding="utf-8")
-    (output_path / "compare.html").write_text(_render_compare_page(output_report, report_data), encoding="utf-8")
-    (output_path / "executive.html").write_text(
-        _render_executive_page(output_report, history_entries, report_data), encoding="utf-8"
-    )
-    (output_path / "share.html").write_text(_render_share_page(output_report, report_data), encoding="utf-8")
-    (output_path / "print-summary.html").write_text(
-        _render_print_summary_page(output_report, history_entries, report_data), encoding="utf-8"
-    )
-    (output_path / "explore.html").write_text(_render_explore_page(output_report, report_data), encoding="utf-8")
-    (output_path / "timeline.html").write_text(_render_timeline_page(output_report, timeline), encoding="utf-8")
-    (output_path / "flaky.html").write_text(_render_flaky_page(output_report), encoding="utf-8")
-    (output_path / "matrix.html").write_text(_render_matrix_page(output_report, report_data), encoding="utf-8")
-    (output_path / "history.html").write_text(
-        _render_history_page(output_report, history_entries, report_data), encoding="utf-8"
-    )
+
+    # Design-faithful per-run pages, rendered from the neutral report_data sidecar.
+    (output_path / "executive.html").write_text(run_render.render_executive(report_data), encoding="utf-8")
+    (output_path / "quality.html").write_text(run_render.render_quality(report_data), encoding="utf-8")
+    (output_path / "explore.html").write_text(run_render.render_explore(report_data), encoding="utf-8")
+    (output_path / "timeline.html").write_text(run_render.render_timeline(report_data), encoding="utf-8")
+    (output_path / "flaky.html").write_text(run_render.render_flaky(report_data), encoding="utf-8")
+    (output_path / "matrix.html").write_text(run_render.render_matrix(report_data), encoding="utf-8")
+    (output_path / "history.html").write_text(run_render.render_history(report_data), encoding="utf-8")
+    (output_path / "share.html").write_text(run_render.render_share(report_data), encoding="utf-8")
+    (output_path / "print-summary.html").write_text(run_render.render_print_summary(report_data), encoding="utf-8")
+    _write_test_detail_pages(report_data, tests_dir)
     index_path = output_path / "index.html"
-    index_path.write_text(_render_dashboard(output_report, details, history_entries, report_data), encoding="utf-8")
+    index_path.write_text(run_render.render_overview(report_data), encoding="utf-8")
     return index_path
 
 
@@ -515,6 +512,27 @@ def _clean_xml_text(value: Any) -> str:
 
 def _trim(value: str, limit: int) -> str:
     return value if len(value) <= limit else value[: limit - 3].rstrip() + "..."
+
+
+def _detail_hrefs(report: RunReport) -> dict[str, str]:
+    """Deterministic per-test detail page hrefs (relative to the run root)."""
+
+    details: dict[str, str] = {}
+    for index, test in enumerate(report.tests, start=1):
+        filename = f"{index:04d}-{_slug(test.id or test.name)}.html"
+        details[test.id] = f"tests/{filename}"
+    return details
+
+
+def _write_test_detail_pages(report_data: dict[str, Any], tests_dir: Path) -> None:
+    """Render every per-test detail page from the neutral report_data sidecar."""
+
+    for record in report_data.get("test_index", []):
+        href = record.get("detail_href", "")
+        filename = href.split("/")[-1] if href else f"{record.get('test_id', 'test')}.html"
+        (tests_dir / filename).write_text(
+            run_render.render_test_detail(report_data, record, prefix="../"), encoding="utf-8"
+        )
 
 
 def _write_test_pages(report: RunReport, tests_dir: Path, report_root: Path, *, safe_share: bool) -> dict[str, str]:
