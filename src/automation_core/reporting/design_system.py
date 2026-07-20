@@ -912,12 +912,23 @@ button:hover {
   min-width: 0;
 }
 
-.hbar-label,
 .truncate {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.hbar-label {
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
 }
 
 .table-wrap {
@@ -997,12 +1008,16 @@ tr:hover td {
 }
 
 .test-name-cell a {
-  display: block;
+  display: -webkit-box;
   color: var(--link);
   font-weight: 600;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
 }
 
 .test-name-cell .muted,
