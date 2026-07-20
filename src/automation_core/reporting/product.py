@@ -535,6 +535,65 @@ def _write_test_detail_pages(report_data: dict[str, Any], tests_dir: Path) -> No
         )
 
 
+def reskin_report_run(run_dir: str | Path) -> bool:
+    """Re-render a retained run's HTML pages from its ``report-data.json``.
+
+    The design system (CSS, layout, colours) is inlined into each generated
+    page, so a design change only reaches new runs. This re-renders every page
+    for one retained run from the neutral sidecar it already stored, so old
+    runs adopt the current design without needing the original run objects.
+    Returns ``True`` when the run was re-skinned.
+    """
+
+    run_path = Path(run_dir)
+    report_data_path = run_path / "report-data.json"
+    if not report_data_path.exists():
+        return False
+    report_data = json.loads(report_data_path.read_text(encoding="utf-8"))
+
+    pages = {
+        "executive.html": run_render.render_executive,
+        "quality.html": run_render.render_quality,
+        "explore.html": run_render.render_explore,
+        "timeline.html": run_render.render_timeline,
+        "flaky.html": run_render.render_flaky,
+        "matrix.html": run_render.render_matrix,
+        "history.html": run_render.render_history,
+        "share.html": run_render.render_share,
+        "print-summary.html": run_render.render_print_summary,
+        "index.html": run_render.render_overview,
+    }
+    for name, renderer in pages.items():
+        (run_path / name).write_text(renderer(report_data), encoding="utf-8")
+
+    tests_dir = run_path / "tests"
+    if tests_dir.exists():
+        _write_test_detail_pages(report_data, tests_dir)
+    return True
+
+
+def reskin_reports(report_root: str | Path) -> int:
+    """Re-skin every retained run under a report root and rebuild the portfolio.
+
+    Use after a design-system change so all retained runs (not just new ones)
+    render with the current visual system. Returns the number of runs
+    re-skinned. Retained run folders are never deleted.
+    """
+
+    from automation_core.reporting.portfolio import RUNS_DIR, generate_report_portfolio
+
+    root = Path(report_root)
+    reskinned = 0
+    runs_dir = root / RUNS_DIR
+    if runs_dir.exists():
+        for run_dir in sorted(runs_dir.glob("*/")):
+            if reskin_report_run(run_dir):
+                reskinned += 1
+    if (root / "portfolio-data.json").exists() or runs_dir.exists():
+        generate_report_portfolio(root)
+    return reskinned
+
+
 def _write_test_pages(report: RunReport, tests_dir: Path, report_root: Path, *, safe_share: bool) -> dict[str, str]:
     details: dict[str, str] = {}
     for index, test in enumerate(report.tests, start=1):

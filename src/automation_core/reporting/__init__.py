@@ -35,7 +35,11 @@ from automation_core.reporting.portfolio import (
     generate_report_portfolio,
     prepare_timestamped_report_dir,
 )
-from automation_core.reporting.product import generate_reporting_product
+from automation_core.reporting.product import (
+    generate_reporting_product,
+    reskin_report_run,
+    reskin_reports,
+)
 from automation_core.reporting.quality import (
     QualityGate,
     QualityGateConfig,
@@ -92,6 +96,8 @@ __all__ = [
     "generate_matrix_dashboard",
     "generate_report_portfolio",
     "generate_reporting_product",
+    "reskin_report_run",
+    "reskin_reports",
     "get_allure_cli",
     "get_or_install_allure_cli",
     "iter_steps",
