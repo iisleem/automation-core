@@ -162,7 +162,7 @@ def sidebar(
         '<div class="app-sidebar-inner" style="position:sticky; top:0; height:100vh; '
         'overflow-y:auto; display:flex; flex-direction:column;">'
         f'<div style="padding:20px 18px 14px;">{_brand()}{context}</div>'
-        '<nav class="app-nav" aria-label="Report navigation" '
+        '<nav class="report-nav" aria-label="Report navigation" '
         'style="flex:1; padding:8px 12px; display:flex; flex-direction:column; gap:2px;">'
         f"{_nav_items(nav, active, prefix)}</nav>"
         f"{_appearance()}"
@@ -234,7 +234,7 @@ _RESPONSIVE_CSS = """
   .app-sidebar{align-self:auto !important; width:100% !important;
     border-right:0 !important; border-bottom:1px solid var(--chromeBorder) !important;}
   .app-sidebar-inner{position:static !important; height:auto !important; overflow:visible !important;}
-  .app-sidebar .app-nav{flex-direction:row !important; flex-wrap:wrap !important;}
+  .app-sidebar .report-nav{flex-direction:row !important; flex-wrap:wrap !important;}
   .app-main{padding:20px !important;}
   .grid-2,.grid-3,.grid-4,.grid-5{grid-template-columns:1fr !important;}
 }

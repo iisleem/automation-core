@@ -1433,37 +1433,6 @@ img.preview {
   border-radius: var(--radius-inner);
 }
 
-@media (min-width: 901px) {
-  body {
-    padding-left: var(--sidebar-width);
-  }
-
-  .nav-shell {
-    position: fixed;
-    inset: 0 auto 0 0;
-    width: var(--sidebar-width);
-    display: flex;
-    flex-direction: column;
-    padding: 20px 12px;
-    overflow-y: auto;
-    background: var(--chrome);
-    border-right: 1px solid var(--chromeBorder);
-  }
-
-  .app-nav {
-    display: flex;
-    min-height: 100%;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .theme-panel {
-    margin-top: auto;
-    padding: 16px 8px 0;
-    border-top: 1px solid var(--chromeBorder);
-  }
-}
-
 @media (max-width: 1100px) {
   .grid.three,
   .grid.four {
