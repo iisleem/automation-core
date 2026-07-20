@@ -535,6 +535,36 @@ def _write_test_detail_pages(report_data: dict[str, Any], tests_dir: Path) -> No
         )
 
 
+def _backfill_platforms(report_data: dict[str, Any]) -> bool:
+    """Add web/mobile/api platform data to a pre-0.12 sidecar in place.
+
+    Runs generated before platform classification existed have no ``platforms``
+    key. Classify each test from the signals already in its index entry and
+    aggregate, so retained runs gain a platform after a reskin. Returns True
+    when anything was added.
+    """
+
+    from automation_core.reporting.platforms import classify_platform, platform_breakdown
+
+    test_index = report_data.get("test_index")
+    if not isinstance(test_index, list) or not test_index:
+        return False
+    summary = report_data.get("run", {}).get("summary", {}) if isinstance(report_data.get("run"), dict) else {}
+    hint = f"{summary.get('framework', '')} {summary.get('project_name', '')}".strip()
+
+    changed = False
+    for record in test_index:
+        if not record.get("platform_type"):
+            record["platform_type"] = classify_platform(record, framework_hint=hint)
+            changed = True
+    if not report_data.get("platforms"):
+        report_data["platforms"] = dict(platform_breakdown(test_index, framework_hint=hint))
+        changed = True
+        if isinstance(report_data.get("aggregates"), dict):
+            report_data["aggregates"]["platforms"] = report_data["platforms"]
+    return changed
+
+
 def reskin_report_run(run_dir: str | Path) -> bool:
     """Re-render a retained run's HTML pages from its ``report-data.json``.
 
@@ -550,6 +580,8 @@ def reskin_report_run(run_dir: str | Path) -> bool:
     if not report_data_path.exists():
         return False
     report_data = json.loads(report_data_path.read_text(encoding="utf-8"))
+    if _backfill_platforms(report_data):
+        report_data_path.write_text(json.dumps(report_data, indent=2), encoding="utf-8")
 
     pages = {
         "executive.html": run_render.render_executive,

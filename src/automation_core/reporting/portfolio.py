@@ -208,6 +208,11 @@ def _report_entry(output_path: Path, run_dir: Path, report_data: dict[str, Any])
     )
     health = report_data.get("run", {}).get("health", {}) if isinstance(report_data.get("run"), dict) else {}
     platforms = report_data.get("platforms", {}) if isinstance(report_data.get("platforms"), dict) else {}
+    if not platforms and isinstance(report_data.get("test_index"), list):
+        from automation_core.reporting.platforms import platform_breakdown
+
+        hint = f"{summary.get('framework', '')} {summary.get('project_name', '')}".strip()
+        platforms = dict(platform_breakdown(report_data["test_index"], framework_hint=hint))
     gate = (
         report_data.get("default_gate_status", {}) if isinstance(report_data.get("default_gate_status"), dict) else {}
     )
