@@ -39,6 +39,15 @@ pytest
 
 ## Version Notes
 
+`0.12.0` rebuilds the static report visual system to a shared sidebar shell with portfolio and
+per-run navigation modes, light/dark/system themes, and a platform-centric (web/mobile/api) model.
+It adds neutral platform classification and per-platform trend/coverage/history, quarantine-adjusted
+release gates (minimum adjusted pass rate, zero new unresolved failures, duration budget), a health
+score (60% adjusted pass rate + 40% stability), design-faithful portfolio dashboard/reports/compare
+pages, and per-run executive, overview, quality gates, tests explore, timeline, flaky, matrix,
+history, share, and test-detail pages. Long identifiers, selectors, and paths are contained with a
+monospace face plus wrap/ellipsis, and every list/table/search has an honest empty state.
+
 `0.11.5` improves retained-run report cards so long run identifiers, quality scores, and risk
 badges remain readable across desktop and narrow viewports.
 

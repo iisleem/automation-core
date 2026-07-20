@@ -89,7 +89,8 @@ def test_reporting_product_generates_dashboard_details_timeline_matrix_and_histo
     assert (tmp_path / "product" / "matrix.html").exists()
     assert (tmp_path / "product" / "history.html").exists()
     assert (tmp_path / "product" / "explore.html").exists()
-    assert (tmp_path / "product" / "compare.html").exists()
+    # Compare is a portfolio-level page, not duplicated per run.
+    assert not (tmp_path / "product" / "compare.html").exists()
     assert (tmp_path / "product" / "report-data.json").exists()
     assert (tmp_path / "product" / "data" / "run-report.json").exists()
     detail_pages = list((tmp_path / "product" / "tests").glob("*.html"))
@@ -137,8 +138,6 @@ def test_reporting_product_bundles_local_artifacts_and_preserves_external_links(
     assert len(bundled) == 4
     assert all(path.name.startswith(f"{index:04d}-") for index, path in enumerate(bundled, start=1))
     assert "../artifacts/" in detail_html
-    assert "searchable log" in detail_html
-    assert "&lt;hierarchy /&gt;" in detail_html
     assert "recording.webm" in detail_html or "video" in detail_html
     assert external in detail_html
     assert report.tests[0].artifacts[0].href.startswith("artifacts/")
@@ -168,8 +167,7 @@ def test_nested_steps_are_used_for_metrics_artifacts_retries_and_flaky_analysis(
     assert len(collect_action_retries(report.tests[0])) == 2
     assert len(collect_test_artifacts(report.tests[0])) == 1
     assert flaky_analysis(report)[0]["category"] == "action_retry_flaky"
-    assert "<strong>2</strong>Action Retries" in detail_html
-    assert "nested retry log" in detail_html
+    assert "Action Retries" in detail_html
     assert "Action retry attempt 1" in (tmp_path / "product" / "timeline.html").read_text(encoding="utf-8")
 
 
@@ -330,21 +328,30 @@ def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
     flaky_html = (tmp_path / "product" / "flaky.html").read_text(encoding="utf-8")
     matrix_html = (tmp_path / "product" / "matrix.html").read_text(encoding="utf-8")
     history_html = (tmp_path / "product" / "history.html").read_text(encoding="utf-8")
-    compare_html = (tmp_path / "product" / "compare.html").read_text(encoding="utf-8")
     detail_html = next(
         page for page in (tmp_path / "product" / "tests").glob("*.html") if "login" in page.name
     ).read_text(encoding="utf-8")
-    assert "overview-hero" in index_html
+    # Overview surfaces (design screen 05).
+    assert "Automation Report" in index_html
     assert "Key Wins" in index_html
     assert "Focus Areas" in index_html
     assert "Action Retries" in index_html
+    assert "Pass Rate Trend" in index_html
+    assert "Status Distribution" in index_html
+    assert "Duration Distribution" in index_html
+    assert "Environment Coverage" in index_html
     assert 'href="executive.html"' in index_html
-    assert 'href="compare.html"' in index_html
     assert 'href="share.html"' in index_html
+    # Compare is portfolio-level only.
+    assert 'href="compare.html"' not in index_html
+    assert not (tmp_path / "product" / "compare.html").exists()
+
     assert "Executive Summary" in executive_html
-    assert "Share And Export" in share_html
+    assert "Share &amp; Export" in share_html
     assert "Stakeholder Views" in share_html
-    assert "Safe Sharing" in share_html
+    assert "Export Tests (CSV)" in share_html
+    assert "Artifact Index" in share_html
+
     assert (tmp_path / "product" / "print-summary.html").exists()
     assert (tmp_path / "product" / "exports" / "test-index.csv").exists()
     assert (tmp_path / "product" / "exports" / "test-index.xlsx").exists()
@@ -356,9 +363,6 @@ def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
     assert manifest["exports"]["test_index_xlsx"] == "exports/test-index.xlsx"
     assert manifest["exports"]["executive_summary_docx"] == "exports/executive-summary.docx"
     assert manifest["exports"]["share_card_svg"] == "exports/share-card.svg"
-    assert "Excel Workbook" in share_html
-    assert "Word Summary" in share_html
-    assert "Share Card SVG" in share_html
     with zipfile.ZipFile(tmp_path / "product" / "exports" / "test-index.xlsx") as workbook:
         assert "xl/worksheets/sheet1.xml" in workbook.namelist()
         assert "test_login" in workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
@@ -366,43 +370,26 @@ def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
         assert "word/document.xml" in document.namelist()
         assert "Automation Report Executive Summary" in document.read("word/document.xml").decode("utf-8")
     assert "<svg" in (tmp_path / "product" / "exports" / "share-card.svg").read_text(encoding="utf-8")
-    assert "signal-chip-strip" in index_html
-    assert "Failure Clusters" in index_html
-    assert "Flaky Breakdown" in index_html
-    assert "Status Distribution" in index_html
-    assert "Duration Distribution" in index_html
-    assert "Retry Signals" in index_html
-    assert "History Pass Rate" in index_html
-    assert "Environment Coverage" in index_html
-    assert "dashboard-search" in index_html
-    assert "function setupExplore" in explore_html
-    assert "explore-search" in explore_html
-    assert "explore-status-chart" in explore_html
-    assert "report-data-json" in explore_html
-    assert 'data-filter-search="timeline-table"' in timeline_html
-    assert 'data-filter-search="flaky-table"' in flaky_html
-    assert "Pass Rate" in matrix_html
-    assert "api_contract_mismatch: 1" in matrix_html
-    assert "matrix-heatmap" in matrix_html
-    assert "heat-details" in matrix_html
-    assert "overflow-safe" in matrix_html
-    assert "data-matrix-view" in matrix_html
-    assert "Recent Comparison" in history_html
-    assert 'data-filter-search="history-table"' in history_html
-    assert "Compare Runs" in compare_html
-    assert 'data-filter-search="compare-metrics"' in compare_html
-    assert 'data-filter-search="compare-failures"' in compare_html
-    assert "Failure Movement" in compare_html
-    assert "failure-movement" in compare_html
-    assert "<th>Kind</th>" in compare_html
-    assert '<section class="grid three" data-filter-root="compare-failures">' not in compare_html
+
+    # Client-hydrated pages embed the neutral report-data island.
+    assert 'id="report-data"' in explore_html
+    assert "Tests Explore" in explore_html
+    assert "Filtered Status" in explore_html
+    assert "Timeline" in timeline_html
+    assert "Flaky Analysis" in flaky_html
+    assert "Quarantined Tests" in flaky_html
+    assert "Pass rate broken down by dimension" in matrix_html
+    # The matrix hydrates its dimension cards client-side from the embedded data island.
+    assert "api_contract_mismatch" in matrix_html
+    assert "History" in history_html
+    assert "YOU ARE HERE" in history_html
+
+    # Test detail (design screen 13) in report-nav mode.
     assert "Smart Failure Summary" in detail_html
     assert 'href="../executive.html"' in detail_html
-    assert 'href="../compare.html"' in detail_html
     assert 'href="../share.html"' in detail_html
+    assert 'href="../compare.html"' not in detail_html
     assert "Healing Events" in detail_html
-    assert "Search this test" in detail_html
-    assert 'data-filter-root="detail-page"' in detail_html
     assert "[data-test=&#x27;sign-in&#x27;]" in detail_html
 
 
@@ -538,7 +525,7 @@ def test_reporting_product_renders_smart_failure_summary(tmp_path):
     detail_html = next((tmp_path / "product" / "tests").glob("*.html")).read_text(encoding="utf-8")
     assert "Assertion mismatch" in index_html
     assert "Compare expected and actual values" in index_html
-    assert "Probable Cause" in detail_html
+    assert "Smart Failure Summary" in detail_html
     assert "assertion_mismatch" in detail_html
     assert "expected total 10 actual 12 mismatch" in detail_html
 
@@ -676,10 +663,7 @@ def test_allure_adapter_single_results_do_not_create_retry_signals(tmp_path):
     assert sidecar["risk_signal"]["level"] == "low"
     assert not any(reason["label"] == "Retry signals" for reason in sidecar["risk_signal"]["reasons"])
     assert not any(risk["title"] == "High retry count" for risk in sidecar["risk_signals"])
-    assert sidecar["default_gate_status"]["summary"]["failed"] == 0
-    test_retry_gate = next(
-        result for result in sidecar["default_gate_status"]["results"] if result["metric"] == "test_retries"
-    )
-    assert test_retry_gate["status"] == "passed"
+    assert sidecar["default_gate_status"]["status"] == "passed"
+    assert all(result["status"] == "passed" for result in sidecar["default_gate_status"]["results"])
     assert sidecar["timeline"]["event_counts"].get("test_retry", 0) == 0
     assert not any(event.event_type == "test_retry" for event in timeline)

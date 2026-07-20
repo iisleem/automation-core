@@ -159,7 +159,9 @@ def _report_entry(output_path: Path, run_dir: Path, report_data: dict[str, Any])
     )
     health = report_data.get("run", {}).get("health", {}) if isinstance(report_data.get("run"), dict) else {}
     platforms = report_data.get("platforms", {}) if isinstance(report_data.get("platforms"), dict) else {}
-    gate = report_data.get("default_gate_status", {}) if isinstance(report_data.get("default_gate_status"), dict) else {}
+    gate = (
+        report_data.get("default_gate_status", {}) if isinstance(report_data.get("default_gate_status"), dict) else {}
+    )
     failed_total = _blocking_failure_count(summary)
     run_dir_href = os.path.relpath(run_dir, output_path)
     generated_at = str(summary.get("latest_run") or "")
@@ -173,7 +175,7 @@ def _report_entry(output_path: Path, run_dir: Path, report_data: dict[str, Any])
         "run_dir": run_dir_href,
         "entry_href": f"{run_dir_href}/index.html",
         "executive_href": f"{run_dir_href}/executive.html",
-        "compare_href": f"{run_dir_href}/compare.html",
+        "compare_href": "compare.html",
         "tests_href": f"{run_dir_href}/explore.html",
         "share_href": f"{run_dir_href}/share.html",
         "total": int(summary.get("total", 0) or 0),

@@ -1631,12 +1631,20 @@ def render_test_detail(report_data: dict[str, Any], test: dict[str, Any], *, pre
 
     stability = _stability_card(report_data, test)
     failure = test.get("failure", {})
+    category = failure.get("category", "")
+    category_tag = (
+        f'<span style="display:inline-block; margin-bottom:10px; padding:3px 10px; border-radius:100px; '
+        f'font-family:{MONO}; font-size:11.5px; background:var(--failSoft); color:var(--fail);">{_e(category)}</span>'
+        if category
+        else ""
+    )
     smart = _card(
         _title("Smart Failure Summary")
+        + category_tag
         + (
             f'<div style="background:var(--surfaceAlt); border-radius:10px; padding:16px; font-family:{MONO}; '
             f'font-size:13px; line-height:1.6; color:var(--text); overflow-wrap:anywhere;">'
-            f"{_e(failure.get('detail') or failure.get('title') or 'No failure — test passed.')}</div>"
+            f"{_e(test.get('failure_message') or failure.get('detail') or failure.get('title') or 'No failure — test passed.')}</div>"
         )
     )
 
@@ -1679,8 +1687,9 @@ def render_test_detail(report_data: dict[str, Any], test: dict[str, Any], *, pre
         )
     )
 
-    artifacts = _artifact_detail(test)
+    artifacts = _artifact_detail(report_data, test, prefix=prefix)
     timeline = _test_timeline(report_data, test)
+    healing = _healing_detail(test)
 
     main = (
         '<a href="explore.html" style="display:inline-flex; align-items:center; gap:6px; font-size:13px; '
@@ -1708,6 +1717,7 @@ def render_test_detail(report_data: dict[str, Any], test: dict[str, Any], *, pre
             )
         )
         + "</div>"
+        + healing
         + artifacts
         + timeline
     )
@@ -1743,20 +1753,67 @@ def _stability_card(report_data: dict[str, Any], test: dict[str, Any]) -> str:
     )
 
 
-def _artifact_detail(test: dict[str, Any]) -> str:
-    names = test.get("artifact_names", [])
-    types = test.get("artifact_types", [])
-    if not names and not types:
+def _healing_detail(test: dict[str, Any]) -> str:
+    events = (test.get("metadata") or {}).get("healing_events", [])
+    if not isinstance(events, list) or not events:
         return _card(
-            _title("Artifacts") + '<p style="font-size:13px; color:var(--faint);">No artifacts captured.</p>',
+            _title("Healing Events") + '<p style="font-size:13px; color:var(--faint);">No healing events captured.</p>',
             extra="margin-bottom:20px;",
         )
-    rows = "".join(
-        f'<div style="display:flex; justify-content:space-between; gap:16px; padding:10px 0; '
-        f'border-top:1px solid var(--border);"><span style="font-family:{MONO}; font-size:12.5px; '
-        f'overflow-wrap:anywhere;">{_e(name)}</span></div>'
-        for name in names
-    )
+    rows = []
+    for event in events:
+        decision = event.get("decision", "")
+        original = (event.get("original") or {}).get("value", "")
+        selected_obj = event.get("selected") or {}
+        selected = (
+            selected_obj.get("value")
+            or (selected_obj.get("candidate") or {}).get("value")
+            or ((event.get("candidates") or [{}])[0].get("candidate") or {}).get("value", "")
+        )
+        color = "var(--pass)" if decision == "applied" else "var(--flaky)"
+        rows.append(
+            '<div style="padding:12px 0; border-top:1px solid var(--border);">'
+            f'<span style="display:inline-block; padding:2px 9px; border-radius:100px; font-family:{MONO}; '
+            f'font-size:11px; font-weight:700; background:var(--surfaceAlt); color:{color};">{_e(decision)}</span>'
+            f'<div style="font-family:{MONO}; font-size:12.5px; margin-top:8px; overflow-wrap:anywhere;">'
+            f'{_e(original)} <span style="color:var(--faint);">→</span> '
+            f'<strong style="color:var(--text);">{_e(selected)}</strong></div></div>'
+        )
+    return _card(_title("Healing Events") + "".join(rows), extra="margin-bottom:20px;")
+
+
+def _artifact_detail(report_data: dict[str, Any], test: dict[str, Any], *, prefix: str = "../") -> str:
+    test_id = test.get("test_id")
+    entries = [a for a in report_data.get("artifacts", []) if a.get("test_id") == test_id]
+    if not entries:
+        # Fall back to plain names from the test-index record.
+        names = test.get("artifact_names", [])
+        if not names:
+            return _card(
+                _title("Artifacts") + '<p style="font-size:13px; color:var(--faint);">No artifacts captured.</p>',
+                extra="margin-bottom:20px;",
+            )
+        entries = [{"name": name, "artifact_type": "", "href": None} for name in names]
+
+    def artifact_row(entry: dict[str, Any]) -> str:
+        name = entry.get("name", "")
+        href = entry.get("href") or entry.get("path")
+        atype = entry.get("artifact_type", "")
+        label = (
+            f'<a href="{_e(prefix + href)}" style="font-family:{MONO}; font-size:12.5px; color:var(--link); '
+            f'text-decoration:none; overflow-wrap:anywhere;">{_e(name)}</a>'
+            if href and str(href) != "[redacted]"
+            else f'<span style="font-family:{MONO}; font-size:12.5px; overflow-wrap:anywhere;">{_e(name)}</span>'
+        )
+        type_html = (
+            f'<span style="font-size:12px; color:var(--faint); flex-shrink:0;">{_e(atype)}</span>' if atype else ""
+        )
+        return (
+            '<div style="display:flex; justify-content:space-between; gap:16px; padding:10px 0; '
+            f'border-top:1px solid var(--border);">{label}{type_html}</div>'
+        )
+
+    rows = "".join(artifact_row(entry) for entry in entries)
     return _card(_title("Artifacts") + rows, extra="margin-bottom:20px;")
 
 

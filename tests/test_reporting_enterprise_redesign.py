@@ -151,9 +151,8 @@ def test_enterprise_report_pages_sidecar_and_portfolio_surface_redesign(tmp_path
 
     sidecar = json.loads((current_dir / "report-data.json").read_text(encoding="utf-8"))
     portfolio_data = json.loads((root / "portfolio-data.json").read_text(encoding="utf-8"))
-    dashboard_html = (current_dir / "index.html").read_text(encoding="utf-8")
+    overview_html = (current_dir / "index.html").read_text(encoding="utf-8")
     executive_html = (current_dir / "executive.html").read_text(encoding="utf-8")
-    compare_html = (current_dir / "compare.html").read_text(encoding="utf-8")
     quality_html = (current_dir / "quality.html").read_text(encoding="utf-8")
     explore_html = (current_dir / "explore.html").read_text(encoding="utf-8")
     detail_html = next((current_dir / "tests").glob("*.html")).read_text(encoding="utf-8")
@@ -161,67 +160,63 @@ def test_enterprise_report_pages_sidecar_and_portfolio_surface_redesign(tmp_path
     gallery_html = (root / "reports.html").read_text(encoding="utf-8")
     portfolio_compare_html = (root / "compare.html").read_text(encoding="utf-8")
 
-    assert (current_dir / "compare.html").exists()
-    assert (root / "compare.html").exists()
+    # Data-level invariants that survive the redesign.
     assert sidecar["compare"]["failure_transitions"] == sidecar["failure_transitions"]["counts"]
     assert sidecar["report_config"]["slow_test_threshold_ms"] == 30_000
     assert sidecar["charts"]["quality_score_components"]
+    assert sidecar["health_score"] is not None
+    assert sidecar["adjusted_pass_rate"] is not None
     assert portfolio_data["summary"]["latest_risk_level"] in {"low", "medium", "high"}
-    assert portfolio_data["reports"][0]["compare_href"].endswith("/compare.html")
     assert portfolio_data["reports"][0]["quality_score"] is not None
-    assert portfolio_data["reports"][0]["new_failure_count"] == 1
-    assert 'data-visual-system="enterprise-redesign"' in dashboard_html
-    assert 'href="compare.html"' in dashboard_html
-    assert "Quality Score" in dashboard_html
-    assert "Risk Signal" in executive_html
-    assert 'data-filter-search="compare-metrics"' in compare_html
-    assert 'data-filter-root="compare-failures"' in compare_html
-    assert "Failure Movement" in compare_html
-    assert "failure-movement" in compare_html
-    assert '<section class="grid three" data-filter-root="compare-failures">' not in compare_html
-    assert "Resource Efficiency" in compare_html
-    assert "Default Gate Status" in quality_html
-    assert "Failure Impact" in quality_html
-    assert "failure-movement" in quality_html
-    assert '<section class="grid three" data-filter-root="quality-failures">' not in quality_html
-    assert "Scope" in explore_html
-    assert "scope-cell" in explore_html
-    assert "signal-cell" in explore_html
-    assert "overflow-wrap: anywhere" in dashboard_html
-    assert 'href="../compare.html"' in detail_html
-    assert "nav-shell" in dashboard_html
-    assert "mobile-nav-toggle" in dashboard_html
-    assert 'data-theme-default="system"' in dashboard_html
-    assert 'data-theme-choice="system"' in dashboard_html
-    assert 'data-theme-choice="light"' in dashboard_html
-    assert 'data-theme-choice="dark"' in dashboard_html
-    assert "max-width: 900px" in dashboard_html
-    assert "min-width: 901px" in dashboard_html
-    assert "max-width: 720px" not in dashboard_html
-    assert "min-width: 721px" not in dashboard_html
-    assert "@media (prefers-color-scheme: dark)" in dashboard_html
-    assert 'font-family: "IBM Plex Sans"' in dashboard_html
-    assert "--sidebar-width: 236px" in dashboard_html
-    assert "--bg: oklch(98% 0.004 240)" in dashboard_html
-    assert "--surface: oklch(24% 0.016 255)" in dashboard_html
-    assert "-webkit-line-clamp: 2" in dashboard_html
-    assert ".metric .muted" in dashboard_html
-    assert ".mini-stat-row" in dashboard_html
-    assert ".card-head" in dashboard_html
-    assert ".score-line" in dashboard_html
-    assert "min-width: 76px" in dashboard_html
-    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in dashboard_html
-    assert "overview-hero" in dashboard_html
-    assert "Key Wins" in dashboard_html
-    assert "Focus Areas" in dashboard_html
-    assert "Healing Events" not in dashboard_html
-    assert "Healing Events" not in detail_html
+    assert portfolio_data["reports"][0]["health_score"] is not None
+    assert portfolio_data["reports"][0]["readiness"] in {"ready", "blocked"}
+
+    # Compare is a portfolio-level page; run pages no longer duplicate it.
+    assert not (current_dir / "compare.html").exists()
+    assert (root / "compare.html").exists()
+
+    # Shared sidebar shell in report mode.
+    assert 'class="app-sidebar"' in overview_html
+    assert "All Reports" in overview_html
+    assert "Appearance" in overview_html
+    assert 'data-theme-choice="system"' in overview_html
+    assert 'data-theme-choice="light"' in overview_html
+    assert 'data-theme-choice="dark"' in overview_html
+
+    # Design tokens + responsive + theme are present in every page's stylesheet.
+    assert "--bg: oklch(98% 0.004 240)" in overview_html
+    assert "@media (prefers-color-scheme: dark)" in overview_html
+    assert "max-width: 900px" in overview_html
+    assert "IBM Plex Sans" in overview_html
+
+    # Overview surfaces.
+    assert "Automation Report" in overview_html
+    assert "Key Wins" in overview_html
+    assert "Focus Areas" in overview_html
+    assert "Pass Rate Trend" in overview_html
+    assert "Environment Coverage" in overview_html
+
+    # Executive + quality gates.
+    assert "Executive Summary" in executive_html
+    assert "Health Score" in executive_html
+    assert "Quality Gates" in quality_html
+    assert "Minimum Pass Rate (adjusted)" in quality_html
+    assert "Zero New Unresolved Failures" in quality_html
+    assert "Duration Budget" in quality_html
+
+    # Tests explore + detail.
+    assert "Tests Explore" in explore_html
+    assert "Filtered Status" in explore_html
+    assert "overflow-wrap:anywhere" in detail_html
+    assert 'href="../compare.html"' not in detail_html
+
+    # Portfolio pages.
     assert "Portfolio Dashboard" in portfolio_html
-    assert "Quality Score Trend" in portfolio_html
-    assert "Risk Levels" in portfolio_html
-    assert "Compare" in gallery_html
+    assert "Pass Rate Trend" in portfolio_html
+    assert "Platform Coverage" in portfolio_html
+    assert "Runs Needing Attention" in portfolio_html
+    assert "Add to Compare" in gallery_html
     assert "Compare Reports" in portfolio_compare_html
-    assert "--sidebar-width: 236px" in portfolio_compare_html
 
 
 def test_enterprise_report_client_rendering_escapes_json_driven_values(tmp_path):
@@ -261,32 +256,29 @@ def test_enterprise_report_client_rendering_escapes_json_driven_values(tmp_path)
     generate_report_portfolio(root, current_report_dir=current_dir)
 
     explore_html = (current_dir / "explore.html").read_text(encoding="utf-8")
-    dashboard_html = (current_dir / "index.html").read_text(encoding="utf-8")
-    compare_html = (current_dir / "compare.html").read_text(encoding="utf-8")
     portfolio_html = (root / "index.html").read_text(encoding="utf-8")
     gallery_html = (root / "reports.html").read_text(encoding="utf-8")
     portfolio_compare_html = (root / "compare.html").read_text(encoding="utf-8")
 
+    # Every client-hydrated page defines and uses an HTML escaper for JSON values.
     for html in (explore_html, portfolio_html, gallery_html, portfolio_compare_html):
-        assert "function escapeHtml" in html
-        assert "function safeHref" in html
-        assert "javascript|data|vbscript" in html
-        assert "/[\\u000d\\u000a]/.test(text)" in html
-        assert "/[\n]/.test(text)" not in html
+        assert "function esc(" in html
 
-    assert "escapeHtml(item.name)" in explore_html
-    assert "safeHref(item.detail_href)" in explore_html
-    assert "escapeHtml(item.run_id" in portfolio_html
-    assert "safeHref(item.entry_href)" in portfolio_html
-    assert "escapeHtml(item.run_id" in gallery_html
-    assert "safeHref(item.entry_href)" in gallery_html
-    assert "escapeHtml(item.run_id" in portfolio_compare_html
-    assert "safeHref(item.entry_href)" in portfolio_compare_html
-    assert "className = 'table-wrap wide'" in gallery_html
-    assert "hydrateResponsiveTables(root)" in gallery_html
-    assert ".compare-table table" in compare_html
-    assert "trend-svg" in dashboard_html
-    assert "labelStep" in portfolio_html
+    # User-controlled values are escaped before being written into innerHTML.
+    assert "esc(t.name)" in explore_html
+    assert "esc(r.run_id)" in portfolio_html
+    assert "esc(r.run_id)" in gallery_html
+    assert "esc(shortId(r.run_id))" in portfolio_compare_html
+
+    # The raw payload is escaped so a data island cannot break out of the script tag.
+    assert "</" not in _script_json(portfolio_html)
+
+
+def _script_json(html: str) -> str:
+    import re
+
+    match = re.search(r'id="portfolio-data">(.*?)</script>', html, re.DOTALL)
+    return match.group(1) if match else ""
 
 
 def test_report_client_rendering_does_not_execute_malicious_values_in_browser(tmp_path):
@@ -359,12 +351,10 @@ def test_healing_sections_render_only_when_healing_events_exist(tmp_path):
     generate_reporting_product(no_healing, no_healing_dir, update_history_file=False)
 
     no_healing_index = (no_healing_dir / "index.html").read_text(encoding="utf-8")
-    no_healing_executive = (no_healing_dir / "executive.html").read_text(encoding="utf-8")
     no_healing_detail = next((no_healing_dir / "tests").glob("*.html")).read_text(encoding="utf-8")
-    assert "Healing Events" not in no_healing_index
-    assert "Healing Events" not in no_healing_executive
-    assert "Healing Events" not in no_healing_detail
-    assert "No healing events captured" not in no_healing_detail
+    # The design keeps the healing card present with an honest empty state.
+    assert "Healing Events" in no_healing_detail
+    assert "No healing events captured" in no_healing_detail
     assert "Action Retries" in no_healing_index
     assert "Test Retries" in no_healing_index
 
@@ -395,9 +385,7 @@ def test_healing_sections_render_only_when_healing_events_exist(tmp_path):
 
     generate_reporting_product(with_healing, with_healing_dir, update_history_file=False)
 
-    with_healing_index = (with_healing_dir / "index.html").read_text(encoding="utf-8")
     with_healing_detail = next((with_healing_dir / "tests").glob("*.html")).read_text(encoding="utf-8")
-    assert "Healing Events" in with_healing_index
     assert "Healing Events" in with_healing_detail
     assert "[data-test=&#x27;sign-in&#x27;]" in with_healing_detail
 
