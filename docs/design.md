@@ -388,6 +388,8 @@ failures that now pass or are absent are listed as resolved.
 The product report remains a portable static artifact: `index.html` works from local files or CI artifacts without a
 server or external CDN. The shared shell links Dashboard, Executive, Quality, Compare, Tests, Timeline, Flaky, Matrix, History, and Share consistently.
 Pages include self-contained CSS/JavaScript for search, filtering, sorting, charts, and matrix view toggles.
+The shell follows the device theme by default, offers light/dark overrides, uses a persistent sidebar on wider
+screens, and switches to a compact mobile drawer on narrow screens.
 
 At the finalizer level, the report root is also a portable portfolio artifact. The root Dashboard summarizes every
 retained report with search/filter controls, pass-rate trend, quality score trend, risk levels, run outcome chart,
