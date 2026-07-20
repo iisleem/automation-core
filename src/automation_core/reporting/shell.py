@@ -152,16 +152,21 @@ def sidebar(
     else:
         nav = PORTFOLIO_NAV
         context = _context_portfolio()
+    # The aside stretches to the full shell height so the ``chrome`` background
+    # fills the entire left column; the inner block is sticky and viewport-tall
+    # so the brand, nav and appearance control stay in view while scrolling.
     return (
-        '<aside class="app-sidebar" style="width:236px; flex-shrink:0; background:var(--chrome); '
-        "border-right:1px solid var(--chromeBorder); color:var(--chromeText); display:flex; "
-        'flex-direction:column; position:sticky; top:0; height:100vh; overflow-y:auto;">'
+        '<aside class="app-sidebar" style="width:236px; flex-shrink:0; align-self:stretch; '
+        "background:var(--chrome); border-right:1px solid var(--chromeBorder); "
+        'color:var(--chromeText);">'
+        '<div class="app-sidebar-inner" style="position:sticky; top:0; height:100vh; '
+        'overflow-y:auto; display:flex; flex-direction:column;">'
         f'<div style="padding:20px 18px 14px;">{_brand()}{context}</div>'
         '<nav class="app-nav" aria-label="Report navigation" '
         'style="flex:1; padding:8px 12px; display:flex; flex-direction:column; gap:2px;">'
         f"{_nav_items(nav, active, prefix)}</nav>"
         f"{_appearance()}"
-        "</aside>"
+        "</div></aside>"
     )
 
 
@@ -226,8 +231,9 @@ _RESPONSIVE_CSS = """
 .drawer-toggle{display:none;}
 @media (max-width: 900px){
   .app-shell{flex-direction:column !important;}
-  .app-sidebar{position:static !important; width:100% !important; height:auto !important;
+  .app-sidebar{align-self:auto !important; width:100% !important;
     border-right:0 !important; border-bottom:1px solid var(--chromeBorder) !important;}
+  .app-sidebar-inner{position:static !important; height:auto !important; overflow:visible !important;}
   .app-sidebar .app-nav{flex-direction:row !important; flex-wrap:wrap !important;}
   .app-main{padding:20px !important;}
   .grid-2,.grid-3,.grid-4,.grid-5{grid-template-columns:1fr !important;}
