@@ -207,6 +207,9 @@ def test_enterprise_report_pages_sidecar_and_portfolio_surface_redesign(tmp_path
     assert "-webkit-line-clamp: 2" in dashboard_html
     assert ".metric .muted" in dashboard_html
     assert ".mini-stat-row" in dashboard_html
+    assert ".card-head" in dashboard_html
+    assert ".score-line" in dashboard_html
+    assert "min-width: 76px" in dashboard_html
     assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in dashboard_html
     assert "overview-hero" in dashboard_html
     assert "Key Wins" in dashboard_html
