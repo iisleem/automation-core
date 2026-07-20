@@ -582,48 +582,95 @@ def reskin_report_run(run_dir: str | Path) -> bool:
     report_data = json.loads(report_data_path.read_text(encoding="utf-8"))
     if _backfill_platforms(report_data):
         report_data_path.write_text(json.dumps(report_data, indent=2), encoding="utf-8")
+    _render_run_pages(run_path, report_data)
+    return True
 
-    pages = {
-        "executive.html": run_render.render_executive,
-        "quality.html": run_render.render_quality,
-        "explore.html": run_render.render_explore,
-        "timeline.html": run_render.render_timeline,
-        "flaky.html": run_render.render_flaky,
-        "matrix.html": run_render.render_matrix,
-        "history.html": run_render.render_history,
-        "share.html": run_render.render_share,
-        "print-summary.html": run_render.render_print_summary,
-        "index.html": run_render.render_overview,
-    }
-    for name, renderer in pages.items():
+
+_RESKIN_PAGES = {
+    "executive.html": run_render.render_executive,
+    "quality.html": run_render.render_quality,
+    "explore.html": run_render.render_explore,
+    "timeline.html": run_render.render_timeline,
+    "flaky.html": run_render.render_flaky,
+    "matrix.html": run_render.render_matrix,
+    "history.html": run_render.render_history,
+    "share.html": run_render.render_share,
+    "print-summary.html": run_render.render_print_summary,
+    "index.html": run_render.render_overview,
+}
+
+
+def _render_run_pages(run_path: Path, report_data: dict[str, Any]) -> None:
+    for name, renderer in _RESKIN_PAGES.items():
         (run_path / name).write_text(renderer(report_data), encoding="utf-8")
-
     tests_dir = run_path / "tests"
     if tests_dir.exists():
         _write_test_detail_pages(report_data, tests_dir)
-    return True
+
+
+def _trend_point_from_data(report_data: dict[str, Any]) -> dict[str, Any]:
+    summary = report_data.get("run", {}).get("summary", {}) if isinstance(report_data.get("run"), dict) else {}
+    failed = summary.get(
+        "blocking_failures",
+        int(summary.get("failed", 0) or 0) + int(summary.get("broken", 0) or 0),
+    )
+    return {
+        "run_id": summary.get("run_id", ""),
+        "latest_run": summary.get("latest_run", ""),
+        "pass_rate": summary.get("pass_rate", 0),
+        "flaky": summary.get("flaky", 0),
+        "failed": failed,
+        "duration_ms": summary.get("duration_ms", 0),
+        "platforms": report_data.get("platforms", {}),
+    }
+
+
+def _backfill_history(ordered: list[dict[str, Any]]) -> None:
+    """Give each run a cumulative per-platform trend from its sibling runs.
+
+    Frameworks that do not thread a shared history file leave ``trend_points``
+    empty, so the pass-rate sparkline and per-platform trends render blank. Since
+    every retained run lives in the same tree, rebuild each run's history as the
+    ordered series of all runs up to and including it, so trends render
+    consistently regardless of how a framework recorded history.
+    """
+
+    points = [_trend_point_from_data(rd) for rd in ordered]
+    for index, report_data in enumerate(ordered):
+        history = report_data.setdefault("history", {})
+        history["trend_points"] = points[: index + 1]
 
 
 def reskin_reports(report_root: str | Path) -> int:
     """Re-skin every retained run under a report root and rebuild the portfolio.
 
-    Use after a design-system change so all retained runs (not just new ones)
-    render with the current visual system. Returns the number of runs
-    re-skinned. Retained run folders are never deleted.
+    Backfills platform classification and a cumulative per-platform history for
+    older runs, re-renders every run with the current visual system, and
+    rebuilds the portfolio. Returns the number of runs re-skinned; retained run
+    folders are never deleted.
     """
 
     from automation_core.reporting.portfolio import RUNS_DIR, generate_report_portfolio
 
     root = Path(report_root)
-    reskinned = 0
     runs_dir = root / RUNS_DIR
+    loaded: list[tuple[Path, dict[str, Any]]] = []
     if runs_dir.exists():
-        for run_dir in sorted(runs_dir.glob("*/")):
-            if reskin_report_run(run_dir):
-                reskinned += 1
+        for report_data_path in runs_dir.glob("*/report-data.json"):
+            report_data = json.loads(report_data_path.read_text(encoding="utf-8"))
+            _backfill_platforms(report_data)
+            loaded.append((report_data_path.parent, report_data))
+
+    loaded.sort(key=lambda item: str(item[1].get("run", {}).get("summary", {}).get("latest_run") or ""))
+    _backfill_history([rd for _, rd in loaded])
+
+    for run_path, report_data in loaded:
+        (run_path / "report-data.json").write_text(json.dumps(report_data, indent=2), encoding="utf-8")
+        _render_run_pages(run_path, report_data)
+
     if (root / "portfolio-data.json").exists() or runs_dir.exists():
         generate_report_portfolio(root)
-    return reskinned
+    return len(loaded)
 
 
 def _write_test_pages(report: RunReport, tests_dir: Path, report_root: Path, *, safe_share: bool) -> dict[str, str]:

@@ -1151,6 +1151,7 @@ function esc(v){var t=(v==null?'':String(v));return t.replace(/[&<>"']/g,functio
 function fdur(ms){ms=Number(ms)||0;if(ms<1000)return (Math.round(ms/100)/10)+'s';var s=ms/1000;if(s<60)return (Math.round(s*10)/10)+'s';return (Math.round(s/60*10)/10)+'m';}
 function statusColor(s){return {passed:'var(--pass)',failed:'var(--fail)',broken:'var(--broken)',skipped:'var(--skip)'}[String(s).toLowerCase()]||'var(--muted)';}
 function statusSoft(s){return {passed:'var(--passSoft)',failed:'var(--failSoft)',broken:'var(--brokenSoft)',skipped:'var(--skipSoft)'}[String(s).toLowerCase()]||'var(--surfaceAlt)';}
+function evLabel(e){if(e.name)return e.name;var m={test_started:'Started',test_finished:'Finished',started:'Started',finished:'Finished',artifact:'Artifact captured',test_retry:'Retry attempt',action_retry:'Action retry',healing:'Self-healing',step:'Step'};var t=String(e.event_type||'').toLowerCase();return m[t]||(t.replace(/_/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();}))||'Event';}
 function render(){
   var d=rd();var events=(d.timeline||{}).events||[];var tests=d.test_index||[];
   var byId={};tests.forEach(function(t){byId[t.test_id]=t;});
@@ -1166,7 +1167,7 @@ function render(){
       var ec=/fail|error|broken|retry/.test((e.event_type||e.name||'').toLowerCase())?'var(--fail)':(/(artifact|capture)/.test((e.event_type||'').toLowerCase())?'var(--accent)':col);
       var connector=i<steps.length-1?'<div style="flex:1;height:2px;background:var(--border);margin:0 8px;align-self:flex-start;margin-top:6px;"></div>':'';
       var ts=e.offset_ms!=null?fdur(e.offset_ms):(e.timestamp?'':'');
-      return '<div style="display:flex;flex-direction:column;align-items:center;text-align:center;min-width:110px;"><span style="width:13px;height:13px;border-radius:50%;background:'+ec+';"></span><strong style="font-size:12.5px;margin-top:8px;">'+esc(e.name||e.event_type||'Event')+'</strong><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;color:var(--faint);margin-top:3px;">'+esc(ts)+'</span></div>'+connector;
+      return '<div style="display:flex;flex-direction:column;align-items:center;text-align:center;min-width:110px;"><span style="width:13px;height:13px;border-radius:50%;background:'+ec+';"></span><strong style="font-size:12.5px;margin-top:8px;">'+esc(evLabel(e))+'</strong><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;color:var(--faint);margin-top:3px;">'+esc(ts)+'</span></div>'+connector;
     }).join('');
     return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);padding:22px;">'
       +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap;"><span style="display:inline-block;padding:3px 9px;border-radius:100px;font-family:\'IBM Plex Mono\',monospace;font-size:11px;font-weight:700;background:'+statusSoft(t.status)+';color:'+col+';">'+esc(t.status)+'</span>'
@@ -1817,15 +1818,66 @@ def _artifact_detail(report_data: dict[str, Any], test: dict[str, Any], *, prefi
     return _card(_title("Artifacts") + rows, extra="margin-bottom:20px;")
 
 
+_EVENT_LABELS = {
+    "test_started": "Started",
+    "test_finished": "Finished",
+    "started": "Started",
+    "finished": "Finished",
+    "artifact": "Artifact captured",
+    "test_retry": "Retry attempt",
+    "action_retry": "Action retry",
+    "healing": "Self-healing",
+    "step": "Step",
+}
+
+
+def _event_label(event: dict[str, Any]) -> str:
+    name = event.get("name")
+    if name:
+        return str(name)
+    event_type = str(event.get("event_type") or "").lower()
+    label = _EVENT_LABELS.get(event_type)
+    if label:
+        return label
+    return event_type.replace("_", " ").title() or "Event"
+
+
+def _event_color(event: dict[str, Any], test_status: str) -> str:
+    event_type = str(event.get("event_type") or "").lower()
+    if "artifact" in event_type or "capture" in event_type:
+        return "var(--accent)"
+    if any(token in event_type for token in ("retry", "fail", "error", "broken", "healing")):
+        return "var(--fail)" if "retry" in event_type or "fail" in event_type else "var(--broken)"
+    # Started/finished reflect the test's overall outcome; steps use their own status.
+    status = (
+        test_status if event_type in ("test_started", "test_finished", "started", "finished") else event.get("status")
+    )
+    color, _ = _status_colors(str(status or test_status))
+    return color
+
+
+def _timeline_stepper(events: list[dict[str, Any]], test_status: str) -> str:
+    cells = []
+    for index, event in enumerate(events):
+        color = _event_color(event, test_status)
+        connector = (
+            '<div style="flex:1 1 20px; height:2px; background:var(--border); margin:6px 6px 0; '
+            'align-self:flex-start; min-width:18px;"></div>'
+            if index < len(events) - 1
+            else ""
+        )
+        cells.append(
+            '<div style="display:flex; flex-direction:column; align-items:center; text-align:center; '
+            'min-width:96px; max-width:150px;">'
+            f'<span style="width:13px; height:13px; border-radius:50%; background:{color}; flex-shrink:0;"></span>'
+            f'<strong style="font-size:12.5px; margin-top:8px; overflow-wrap:anywhere; line-height:1.35;">'
+            f"{_e(_event_label(event))}</strong></div>{connector}"
+        )
+    return f'<div style="display:flex; align-items:flex-start; flex-wrap:wrap;">{"".join(cells)}</div>'
+
+
 def _test_timeline(report_data: dict[str, Any], test: dict[str, Any]) -> str:
     events = [e for e in report_data.get("timeline", {}).get("events", []) if e.get("test_id") == test.get("test_id")]
     if not events:
         return ""
-    steps = "".join(
-        '<div style="display:flex; flex-direction:column; align-items:center; text-align:center; min-width:110px;">'
-        f'<span style="width:13px; height:13px; border-radius:50%; background:var(--accent);"></span>'
-        f'<strong style="font-size:12.5px; margin-top:8px;">{_e(e.get("name", e.get("event_type", "")))}</strong>'
-        "</div>"
-        for e in events
-    )
-    return _card(_title("Timeline") + f'<div style="display:flex; gap:20px; flex-wrap:wrap;">{steps}</div>')
+    return _card(_title("Timeline") + _timeline_stepper(events, str(test.get("status", ""))))
