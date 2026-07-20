@@ -196,6 +196,8 @@ def _report_entry(output_path: Path, run_dir: Path, report_data: dict[str, Any])
         "quality_configured": bool(quality.get("configured")),
         "quality_message": quality.get("message", ""),
         "quality_score": quality_score.get("score"),
+        "health_score": report_data.get("health_score"),
+        "adjusted_pass_rate": report_data.get("adjusted_pass_rate"),
         "quality_grade": quality_score.get("grade", "n/a"),
         "quality_score_status": quality_score.get("status", "unknown"),
         "risk_level": risk_signal.get("level", "low"),

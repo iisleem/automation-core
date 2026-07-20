@@ -238,7 +238,7 @@ function renderDashboard(){
   var total=reports.length;
   var ready=reports.filter(function(r){return r.readiness==='ready';}).length;
   var blocked=total-ready;
-  var health=total?Math.round(reports.reduce(function(a,r){return a+(typeof r.quality_score==='number'?r.quality_score:r.pass_rate);},0)/total):0;
+  var health=total?Math.round(reports.reduce(function(a,r){return a+(typeof r.health_score==='number'?r.health_score:(typeof r.quality_score==='number'?r.quality_score:r.pass_rate));},0)/total):0;
   var latest=reports[0]||{};
   var latestPass=Number(latest.pass_rate||0);
   var totalTests=reports.reduce(function(a,r){return a+(r.total||0);},0);

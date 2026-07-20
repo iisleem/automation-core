@@ -97,7 +97,7 @@ class RunReport:
     tests: list[TestCaseReport] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
     matrix_dimensions: list[str] = field(
-        default_factory=lambda: ["environment", "profile", "browser", "device_name", "platform", "api_profile"]
+        default_factory=lambda: ["profile", "api_profile", "domain", "component", "platform", "context", "owner"]
     )
 
     def to_dict(self) -> dict[str, Any]:

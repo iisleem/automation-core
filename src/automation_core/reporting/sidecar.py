@@ -92,6 +92,8 @@ def build_report_data(
         "signals": signals,
         "risk_signals": _risk_signals(report, test_index),
         "quality_score": insights["quality_score"],
+        "health_score": insights["health_score"],
+        "adjusted_pass_rate": insights["adjusted_pass_rate"],
         "risk_signal": insights["risk_signal"],
         "quality": evaluate_quality_gates(report, quality_gates).to_dict(),
         "default_gate_status": insights["default_gate_status"],

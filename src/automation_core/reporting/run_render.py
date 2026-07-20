@@ -259,7 +259,7 @@ def render_overview(report_data: dict[str, Any]) -> str:
     qscore = report_data.get("quality_score", {})
     gate = report_data.get("default_gate_status", {})
     ready = str(gate.get("status", "")).lower() == "passed"
-    score = int(round(float(qscore.get("score", 0) or 0)))
+    score = int(round(float(report_data.get("health_score", qscore.get("score", 0)) or 0)))
     ring_color = "var(--pass)" if score >= 80 else ("var(--flaky)" if score >= 60 else "var(--fail)")
     pass_rate = float(summary.get("pass_rate", 0) or 0)
     total = int(summary.get("total", 0) or 0)
@@ -273,7 +273,7 @@ def render_overview(report_data: dict[str, Any]) -> str:
         empty = _card(
             '<div style="text-align:center; padding:48px 24px;">'
             '<div style="width:56px; height:56px; border-radius:14px; background:var(--surfaceAlt); '
-            "display:inline-flex; align-items:center; justify-content:center; margin-bottom:16px;\">"
+            'display:inline-flex; align-items:center; justify-content:center; margin-bottom:16px;">'
             '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--faint)" '
             'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/>'
             '<path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>'
@@ -282,10 +282,7 @@ def render_overview(report_data: dict[str, Any]) -> str:
             '<p style="font-size:14px; color:var(--muted); margin:0;">This run produced no test results. '
             "Nothing to show yet.</p></div>"
         )
-        main = (
-            _page_header("Overview", "Automation Report", "pytest run summary and signals for this build.")
-            + empty
-        )
+        main = _page_header("Overview", "Automation Report", "pytest run summary and signals for this build.") + empty
         return _document(report_data, "dashboard", "Automation Report — Overview", main)
 
     verdict_soft = "var(--passSoft)" if ready else "var(--failSoft)"
@@ -451,11 +448,12 @@ def _gate_sentence(gate: dict[str, Any], summary: dict[str, Any]) -> str:
     results = gate.get("results", []) if isinstance(gate.get("results"), list) else []
     total_gates = len(results)
     passed_gates = sum(1 for r in results if str(r.get("status")).lower() == "passed")
-    pass_rate = _fmt_pct(summary.get("pass_rate", 0))
+    adjusted = gate.get("adjusted_pass_rate")
+    pass_rate = _fmt_pct(adjusted if adjusted is not None else summary.get("pass_rate", 0))
     if str(gate.get("status")).lower() == "passed":
         return f"Adjusted pass rate {pass_rate} meets all {total_gates} release gates, with no new unresolved failures."
     failed_gates = total_gates - passed_gates
-    return f"{failed_gates} of {total_gates} release gate(s) failing — pass rate {pass_rate}."
+    return f"{failed_gates} of {total_gates} release gate(s) failing — adjusted pass rate {pass_rate}."
 
 
 def _signed(value: Any, suffix: str = "") -> str:
@@ -684,7 +682,7 @@ def render_executive(report_data: dict[str, Any]) -> str:
     gate = report_data.get("default_gate_status", {})
     qscore = report_data.get("quality_score", {})
     ready = str(gate.get("status", "")).lower() == "passed"
-    score = int(round(float(qscore.get("score", 0) or 0)))
+    score = int(round(float(report_data.get("health_score", qscore.get("score", 0)) or 0)))
     verdict_soft = "var(--passSoft)" if ready else "var(--failSoft)"
     verdict_color = "var(--pass)" if ready else "var(--fail)"
     verdict_label = "RELEASE READY" if ready else "RELEASE BLOCKED"
@@ -797,7 +795,7 @@ def _known_issues_card(report_data: dict[str, Any]) -> str:
 def _what_changed_card(report_data: dict[str, Any]) -> str:
     transitions = report_data.get("failure_transitions", {})
     counts = transitions.get("counts", {})
-    new = transitions.get("new_failures", [])
+    new = _filtered_new_failures(report_data)
     known = transitions.get("known_failures", [])
     resolved_count = counts.get("resolved", 0)
 
@@ -810,7 +808,7 @@ def _what_changed_card(report_data: dict[str, Any]) -> str:
 
     body = (
         f'<div style="font-size:13.5px; font-weight:700; color:var(--fail); margin-bottom:4px;">'
-        f"New failures ({counts.get('new', 0)})</div>"
+        f"New failures ({len(new)})</div>"
         + links(new)
         + f'<div style="font-size:13.5px; font-weight:700; color:var(--flaky); margin:12px 0 4px;">'
         f"Persistent known issues ({counts.get('known', 0)})</div>"
@@ -970,6 +968,26 @@ def _run_comparison_table(comparison: dict[str, Any], report_data: dict[str, Any
     )
 
 
+def _quarantined_test_ids(report_data: dict[str, Any]) -> set:
+    ids = set()
+    for item in report_data.get("test_index", []):
+        metadata = item.get("metadata") or {}
+        if metadata.get("quarantined") or metadata.get("known_issue"):
+            ids.add(item.get("test_id"))
+    return ids
+
+
+def _filtered_new_failures(report_data: dict[str, Any]) -> list[dict[str, Any]]:
+    """New failures excluding known/quarantined tests — matches the release gate."""
+
+    excluded = _quarantined_test_ids(report_data)
+    return [
+        failure
+        for failure in report_data.get("failure_transitions", {}).get("new_failures", []) or []
+        if failure.get("test_id") not in excluded and not failure.get("known_issue")
+    ]
+
+
 def _failure_transition_cards(report_data: dict[str, Any]) -> str:
     transitions = report_data.get("failure_transitions", {})
 
@@ -999,7 +1017,7 @@ def _failure_transition_cards(report_data: dict[str, Any]) -> str:
 
     return (
         '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:20px;" class="grid-3">'
-        + col("New Unresolved Failures", transitions.get("new_failures", []), "var(--fail)")
+        + col("New Unresolved Failures", _filtered_new_failures(report_data), "var(--fail)")
         + col("Known & Tracked Failures", transitions.get("known_failures", []), "var(--flaky)")
         + col("Resolved Since Previous Run", transitions.get("resolved_failures", []), "var(--pass)")
         + "</div>"
@@ -1093,7 +1111,7 @@ function render(){
   var rows=out.map(function(t){var sc=statusColors(t.status);
     var known=(t.metadata||{}).known_issue?'<div style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;color:var(--flaky);margin-top:4px;">Known Issue · '+esc((t.metadata||{}).known_issue)+'</div>':'';
     return '<tr><td style="padding:14px 16px;border-top:1px solid var(--border);vertical-align:top;"><span style="display:inline-block;padding:3px 9px;border-radius:100px;font-family:\'IBM Plex Mono\',monospace;font-size:11px;font-weight:700;background:'+sc[1]+';color:'+sc[0]+';">'+esc(t.status)+'</span></td>'
-      +'<td style="padding:14px 16px;border-top:1px solid var(--border);max-width:340px;"><a href="'+esc(t.detail_href||'#')+'" style="font-family:\'IBM Plex Mono\',monospace;font-size:12.5px;color:var(--link);text-decoration:none;overflow-wrap:anywhere;display:block;">'+esc(t.name)+'</a><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;color:var(--faint);">'+esc(t.suite||'')+'</span>'+known+'</td>'
+      +'<td style="padding:14px 16px;border-top:1px solid var(--border);max-width:300px;"><a href="'+esc(t.detail_href||'#')+'" title="'+esc(t.name)+'" style="font-family:\'IBM Plex Mono\',monospace;font-size:12.5px;color:var(--link);text-decoration:none;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(t.name)+'</a><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;color:var(--faint);">'+esc(t.suite||'')+'</span>'+known+'</td>'
       +'<td style="padding:14px 16px;border-top:1px solid var(--border);font-weight:600;">'+esc((t.platform_type||'').charAt(0).toUpperCase()+(t.platform_type||'').slice(1))+'</td>'
       +'<td style="padding:14px 16px;border-top:1px solid var(--border);font-family:\'IBM Plex Mono\',monospace;font-size:12px;color:var(--muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="'+esc(t.domain||'')+'">'+esc(t.domain||'-')+'</td>'
       +'<td style="padding:14px 16px;border-top:1px solid var(--border);font-family:\'IBM Plex Mono\',monospace;">'+fdur(t.duration_ms)+'</td>'
@@ -1254,7 +1272,7 @@ function render(){
   var head=['Category','Test','Status','Duration','Reason'].map(function(h){return '<th style="padding:14px 16px;text-align:left;font-size:11px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--faint);background:var(--surfaceAlt);">'+h+'</th>';}).join('');
   var rows=out.map(function(i){var c=sc(i.status);
     return '<tr><td style="padding:14px 16px;border-top:1px solid var(--border);font-family:\'IBM Plex Mono\',monospace;font-size:12px;color:var(--muted);">'+esc(i.category)+'</td>'
-      +'<td style="padding:14px 16px;border-top:1px solid var(--border);max-width:300px;"><a href="'+esc(i.detail_href||'#')+'" style="font-family:\'IBM Plex Mono\',monospace;font-size:12.5px;color:var(--link);text-decoration:none;overflow-wrap:anywhere;">'+esc(i.name)+'</a></td>'
+      +'<td style="padding:14px 16px;border-top:1px solid var(--border);max-width:280px;"><a href="'+esc(i.detail_href||'#')+'" title="'+esc(i.name)+'" style="display:block;font-family:\'IBM Plex Mono\',monospace;font-size:12.5px;color:var(--link);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(i.name)+'</a></td>'
       +'<td style="padding:14px 16px;border-top:1px solid var(--border);"><span style="display:inline-block;padding:3px 9px;border-radius:100px;font-family:\'IBM Plex Mono\',monospace;font-size:11px;font-weight:700;background:'+c[1]+';color:'+c[0]+';">'+esc(i.status)+'</span></td>'
       +'<td style="padding:14px 16px;border-top:1px solid var(--border);font-family:\'IBM Plex Mono\',monospace;">'+fdur(i.duration_ms)+'</td>'
       +'<td style="padding:14px 16px;border-top:1px solid var(--border);font-size:12.5px;color:var(--muted);overflow-wrap:anywhere;max-width:280px;">'+esc(i.reason||'')+'</td></tr>';
@@ -1294,7 +1312,8 @@ var mxState={dim:'',q:''};
 function labelize(k){return k.replace(/_/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();});}
 function render(){
   var d=rd();var matrix=d.matrix||{};var dims=Object.keys(matrix).filter(function(k){return matrix[k]&&Object.keys(matrix[k]).length;});
-  if(!mxState.dim&&dims.length)mxState.dim=dims[0];
+  if(!dims.length){document.getElementById('mx-tabs').innerHTML='';document.getElementById('mx-cards').innerHTML='';document.getElementById('mx-table').innerHTML='<p style="font-size:14px;color:var(--faint);padding:40px;text-align:center;">No dimension data captured for this run.</p>';return;}
+  if(dims.indexOf(mxState.dim)<0)mxState.dim=dims[0];
   document.getElementById('mx-tabs').innerHTML=dims.map(function(k){var on=k===mxState.dim;
     return '<button type="button" data-dim="'+esc(k)+'" style="flex:0 0 auto;padding:9px 16px;border:0;border-radius:8px;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;background:'+(on?'var(--accentSoft)':'transparent')+';color:'+(on?'var(--accent)':'var(--muted)')+';">'+labelize(k)+'</button>';
   }).join('');
@@ -1402,14 +1421,16 @@ def render_history(report_data: dict[str, Any]) -> str:
         rows += (
             f'<tr style="{row_bg}"><td style="padding:14px 16px; font-family:{MONO}; font-size:12.5px; '
             f'color:var(--muted); border-top:1px solid var(--border);">{_fmt_ts(tp.get("latest_run"))}</td>'
-            f'<td style="padding:14px 16px; font-family:{MONO}; font-weight:600; border-top:1px solid var(--border);">'
-            f"{_e(tp.get('run_id', ''))}{here_badge}</td>"
+            f'<td style="padding:14px 16px; font-family:{MONO}; font-weight:600; white-space:nowrap; '
+            f'border-top:1px solid var(--border);">{_e(tp.get("run_id", ""))}{here_badge}</td>'
             f'<td style="padding:14px 16px; border-top:1px solid var(--border);">'
             '<div style="display:flex; align-items:center; gap:10px;">'
-            '<div style="width:120px; height:8px; border-radius:100px; background:var(--surfaceAlt); overflow:hidden;">'
+            '<div style="width:110px; height:8px; border-radius:100px; background:var(--surfaceAlt); '
+            'overflow:hidden; flex-shrink:0;">'
             f'<span style="display:block; height:100%; width:{rate:.1f}%; background:var(--accent); '
             'border-radius:100px;"></span></div>'
-            f'<span style="font-family:{MONO}; font-size:12.5px;">{_fmt_pct(rate)}</span></div></td>'
+            f'<span style="font-family:{MONO}; font-size:12.5px; white-space:nowrap;">{_fmt_pct(rate)}</span>'
+            "</div></td>"
             f'<td style="padding:14px 16px; text-align:right; font-family:{MONO}; border-top:1px solid var(--border);">'
             f"{int(tp.get('flaky', 0) or 0)}</td>"
             f'<td style="padding:14px 16px; text-align:right; font-family:{MONO}; border-top:1px solid var(--border);">'
