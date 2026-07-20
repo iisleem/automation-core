@@ -228,7 +228,7 @@ def test_finalize_core_retains_multiple_timestamped_reports_and_portfolio_pages(
     assert all(path.name[:8].isdigit() and path.name[8] == "-" for path in run_dirs)
     portfolio = json.loads((output_dir / "portfolio-data.json").read_text(encoding="utf-8"))
     assert [item["run_id"] for item in portfolio["reports"]] == ["run-two", "run-one"]
-    assert "Automation Reports Dashboard" in (output_dir / "index.html").read_text(encoding="utf-8")
+    assert "Portfolio Dashboard" in (output_dir / "index.html").read_text(encoding="utf-8")
     assert "Reports" in (output_dir / "reports.html").read_text(encoding="utf-8")
 
 

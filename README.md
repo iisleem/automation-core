@@ -17,7 +17,7 @@ See [Template Repository Strategy](docs/template_strategy.md) for the product-fa
 From GitHub after the repository is published:
 
 ```bash
-pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.11.0"
+pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.11.1"
 ```
 
 For local development:
@@ -38,6 +38,10 @@ pytest
 - Data, file, structured file, text, URL, date/time, secrets, cleanup, soft assertion, security, and response timing helpers.
 
 ## Version Notes
+
+`0.11.1` aligns the static report shell with the shared design system, adds portfolio/run hero
+insight cards, improves matrix heatmap status coloring and long-name handling, and removes the
+legacy duplicated report CSS from the product and portfolio renderers.
 
 `0.11.0` redesigns the static enterprise report visual system across retained portfolio pages and
 single-run reports. It adds a consistent sidebar/mobile drawer shell, system-default theme with
@@ -165,9 +169,9 @@ wrappers can make clear decisions without parsing console output.
 
 When frameworks use `finalize_allure_reporting(...)`, the report root becomes a retained report portfolio:
 
-- `reports/automation-report/index.html`: cross-run dashboard with search, filters, charts, health signals, and coverage.
+- `reports/automation-report/index.html`: portfolio dashboard with search, filters, charts, health signals, and coverage across retained runs.
 - `reports/automation-report/reports.html`: report gallery with cards/table view and links into each saved run.
-- `reports/automation-report/runs/<timestamp>-<run-id>/index.html`: exact dashboard for one execution.
+- `reports/automation-report/runs/<timestamp>-<run-id>/index.html`: overview page for one execution.
 - `reports/automation-report/portfolio-data.json`: machine-readable index of all saved report runs.
 
 `result.core.path` points to the portfolio dashboard. `result.core.run_path` points to the current timestamped run's

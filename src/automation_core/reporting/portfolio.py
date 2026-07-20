@@ -9,6 +9,7 @@ from pathlib import Path
 from shutil import move
 from typing import Any
 
+from automation_core.reporting.design_system import report_design_styles
 from automation_core.reporting.models import to_jsonable
 
 RUNS_DIR = "runs"
@@ -263,13 +264,13 @@ def _filter_options(reports: list[dict[str, Any]]) -> dict[str, list[str]]:
 
 def _render_dashboard_page(data: dict[str, Any]) -> str:
     return _page(
-        "Automation Reports Dashboard",
+        "Portfolio Dashboard",
         f"""
 <header class="hero">
   <div>
     <p class="eyebrow">Report portfolio</p>
-    <h1>Automation Reports Dashboard</h1>
-    <p>Searchable cross-run view for every retained report under this folder.</p>
+    <h1>Portfolio Dashboard</h1>
+    <p>History and health across every retained run — web, mobile, and API.</p>
   </div>
   <div class="hero-actions">
     <a class="button inverse" href="reports.html">Browse Reports</a>
@@ -277,6 +278,7 @@ def _render_dashboard_page(data: dict[str, Any]) -> str:
 </header>
 {_portfolio_nav("dashboard")}
 {_portfolio_toolbar("portfolio")}
+{_portfolio_hero(data)}
 <section class="metrics" id="portfolio-metrics"></section>
 <section class="grid two">
   <article><h2>Pass Rate Trend</h2><div id="portfolio-pass-trend"></div></article>
@@ -298,6 +300,122 @@ def _render_dashboard_page(data: dict[str, Any]) -> str:
 """,
         "dashboard",
     )
+
+
+def _portfolio_hero(data: dict[str, Any]) -> str:
+    summary = data.get("summary", {})
+    total = int(summary.get("total_reports", 0) or 0)
+    blocked = int(summary.get("failing_runs", 0) or 0)
+    ready = max(total - blocked, 0)
+    latest_pass_rate = float(summary.get("latest_pass_rate", 0) or 0)
+    quality = summary.get("latest_quality_score")
+    health = int(quality if isinstance(quality, (int, float)) else round(latest_pass_rate))
+    status = "failed" if blocked else "passed"
+    ring_color = "var(--fail)" if blocked else "var(--pass)"
+    status_text = f"{blocked} Runs Blocked" if blocked else "All Runs Ready"
+    sentence = (
+        f"{blocked} of {total} retained run(s) need attention before release."
+        if blocked
+        else f"All {total} retained run(s) are currently release-ready."
+    )
+    return f"""
+<section class="grid two overview-hero">
+  <article class="health-card">
+    <div class="health-card-main">
+      <div class="score-ring status-{_e(status)}" style="background:conic-gradient({ring_color} 0 {health:g}%, var(--surfaceAlt) {health:g}% 100%)">
+        <strong>{health}</strong>
+        <span>Health</span>
+      </div>
+      <div>
+        <span class="status {status}">{_e(status_text)}</span>
+        <p class="muted">{_e(sentence)}</p>
+      </div>
+    </div>
+    {_portfolio_status_segments(ready, blocked)}
+  </article>
+  <article class="pass-card">
+    <div class="card-label">Latest Pass Rate</div>
+    <div class="hero-number">{latest_pass_rate:g}%</div>
+    {_portfolio_sparkline(data.get("reports", []), latest_pass_rate)}
+    <div class="mini-stat-row">
+      <span><strong>{total}</strong>Runs</span>
+      <span class="failed-stat"><strong>{blocked}</strong>Blocked</span>
+      <span class="flaky-stat"><strong>{summary.get("total_flaky", 0)}</strong>Flaky</span>
+      <span><strong>{_e(_format_duration(summary.get("total_duration_ms", 0)))}</strong>Duration</span>
+    </div>
+  </article>
+</section>
+<section class="grid two insight-pair">
+  <article class="insight-card key-wins">
+    <h2>Key Wins</h2>
+    <ul>{"".join(f"<li>{_e(item)}</li>" for item in _portfolio_wins(summary))}</ul>
+  </article>
+  <article class="insight-card focus-areas">
+    <h2>Focus Areas</h2>
+    <ul>{"".join(f"<li>{_e(item)}</li>" for item in _portfolio_focus(summary))}</ul>
+  </article>
+</section>
+"""
+
+
+def _portfolio_status_segments(ready: int, blocked: int) -> str:
+    total = ready + blocked
+    if not total:
+        return '<p class="empty-state">No retained runs yet.</p>'
+    ready_width = (ready / total) * 100 if ready else 0
+    blocked_width = (blocked / total) * 100 if blocked else 0
+    segments = (f'<span class="segment segment-passed" style="width:{ready_width:.3f}%"></span>' if ready else "") + (
+        f'<span class="segment segment-failed" style="width:{blocked_width:.3f}%"></span>' if blocked else ""
+    )
+    return (
+        f'<div class="status-segments">{segments}</div>'
+        f'<div class="legend segment-legend"><span><i class="swatch segment-passed"></i>Ready {ready}</span>'
+        f'<span><i class="swatch segment-failed"></i>Blocked {blocked}</span></div>'
+    )
+
+
+def _portfolio_sparkline(reports: list[dict[str, Any]], fallback: float) -> str:
+    series = [float(report.get("pass_rate", 0) or 0) for report in reversed(reports[:8])]
+    if not series:
+        series = [fallback]
+    width = 260
+    height = 58
+    if len(series) == 1:
+        x_values = [width / 2]
+    else:
+        x_values = [(index / (len(series) - 1)) * (width - 24) + 12 for index in range(len(series))]
+    y_values = [height - 8 - (value / 100) * (height - 16) for value in series]
+    path = " ".join(f"{x:.1f},{y:.1f}" for x, y in zip(x_values, y_values, strict=False))
+    return (
+        f'<svg class="mini-sparkline" viewBox="0 0 {width} {height}" role="img" aria-label="Latest pass-rate trend">'
+        f'<polyline points="{path}" fill="none" stroke="var(--pass)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>'
+        "</svg>"
+    )
+
+
+def _portfolio_wins(summary: dict[str, Any]) -> list[str]:
+    wins: list[str] = []
+    ready = int(summary.get("total_reports", 0) or 0) - int(summary.get("failing_runs", 0) or 0)
+    if ready > 0:
+        wins.append(f"{ready} retained run(s) are release-ready.")
+    if int(summary.get("resolved_failures", 0) or 0):
+        wins.append(f"{summary.get('resolved_failures')} failure(s) resolved across retained runs.")
+    if int(summary.get("total_tests", 0) or 0):
+        wins.append(f"{summary.get('total_tests')} total test result(s) are indexed for traceability.")
+    return wins or ["No retained run has produced a positive release signal yet."]
+
+
+def _portfolio_focus(summary: dict[str, Any]) -> list[str]:
+    focus: list[str] = []
+    if int(summary.get("failing_runs", 0) or 0):
+        focus.append(f"{summary.get('failing_runs')} run(s) are blocked by failures.")
+    if int(summary.get("total_flaky", 0) or 0):
+        focus.append(f"{summary.get('total_flaky')} flaky test signal(s) need review.")
+    if int(summary.get("high_risk_runs", 0) or 0):
+        focus.append(f"{summary.get('high_risk_runs')} run(s) are marked high risk.")
+    if int(summary.get("new_failures", 0) or 0):
+        focus.append(f"{summary.get('new_failures')} new failure(s) appeared across retained runs.")
+    return focus or ["No retained runs currently need attention."]
 
 
 def _render_reports_page(data: dict[str, Any]) -> str:
@@ -400,7 +518,7 @@ def _portfolio_toolbar(scope: str) -> str:
 
 def _portfolio_nav(active: str) -> str:
     links = (
-        ("dashboard", "Dashboard", "index.html"),
+        ("dashboard", "Portfolio", "index.html"),
         ("reports", "Reports", "reports.html"),
         ("compare", "Compare", "compare.html"),
     )
@@ -427,7 +545,7 @@ def _page(title: str, body: str, page_kind: str) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{_e(title)}</title>
   <script>{_theme_bootstrap_script()}</script>
-  <style>{_portfolio_styles()}</style>
+  <style>{report_design_styles()}</style>
   <script>{_portfolio_script(page_kind)}</script>
 </head>
 <body data-visual-system="enterprise-redesign" data-theme-default="system">
@@ -459,717 +577,6 @@ def _theme_controls() -> str:
         '<button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>'
         "</div></div>"
     )
-
-
-def _portfolio_styles() -> str:
-    return """
-:root {
-  color-scheme: light dark;
-  --sidebar-width: 268px;
-  --ink: #172033;
-  --heading: #172033;
-  --muted: #5b6472;
-  --line: #dbe3ec;
-  --panel: #ffffff;
-  --panel-soft: #f8fafc;
-  --bg: #f3f6f9;
-  --input-bg: #ffffff;
-  --table-head: #eef3f7;
-  --accent: #2563eb;
-  --accent-2: #7c3aed;
-  --danger: #b91c1c;
-  --warn: #b45309;
-  --ok: #047857;
-  --hero-title: #172033;
-  --hero-text: #526071;
-  --dark-heading: #f8fafc;
-  --sidebar-bg: #eef3f8;
-  --sidebar-ink: #1f2937;
-  --nav-active-bg: #dce8ff;
-  --nav-active-ink: #2563eb;
-  --nav-hover: #e6edf6;
-  --shadow: 0 10px 24px rgba(15, 23, 42, .08);
-  --soft-shadow: 0 3px 12px rgba(15, 23, 42, .05);
-}
-:root[data-theme="light"] {
-  color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --ink: #e7edf7;
-    --heading: #f8fafc;
-    --muted: #a8b3c7;
-    --line: #293548;
-    --panel: #111827;
-    --panel-soft: #162234;
-    --bg: #070b12;
-    --input-bg: #0f172a;
-    --table-head: #182335;
-    --accent: #60a5fa;
-    --accent-2: #a78bfa;
-    --danger: #f87171;
-    --warn: #fbbf24;
-    --ok: #34d399;
-    --hero-title: #f8fafc;
-    --hero-text: #cbd5e1;
-    --sidebar-bg: #0b1220;
-    --sidebar-ink: #e7edf7;
-    --nav-active-bg: #1d3b68;
-    --nav-active-ink: #bfdbfe;
-    --nav-hover: #172033;
-    --shadow: 0 12px 30px rgba(0, 0, 0, .32);
-    --soft-shadow: 0 4px 14px rgba(0, 0, 0, .22);
-  }
-}
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --ink: #e7edf7;
-  --heading: #f8fafc;
-  --muted: #a8b3c7;
-  --line: #293548;
-  --panel: #111827;
-  --panel-soft: #162234;
-  --bg: #070b12;
-  --input-bg: #0f172a;
-  --table-head: #182335;
-  --accent: #60a5fa;
-  --accent-2: #a78bfa;
-  --danger: #f87171;
-  --warn: #fbbf24;
-  --ok: #34d399;
-  --hero-title: #f8fafc;
-  --hero-text: #cbd5e1;
-  --sidebar-bg: #0b1220;
-  --sidebar-ink: #e7edf7;
-  --nav-active-bg: #1d3b68;
-  --nav-active-ink: #bfdbfe;
-  --nav-hover: #172033;
-  --shadow: 0 12px 30px rgba(0, 0, 0, .32);
-  --soft-shadow: 0 4px 14px rgba(0, 0, 0, .22);
-}
-* {
-  box-sizing: border-box;
-}
-html,
-body {
-  width: 100%;
-  max-width: 100%;
-  overflow-x: hidden;
-}
-body {
-  margin: 0;
-  font-family: Arial, sans-serif;
-  color: var(--ink);
-  background: var(--bg);
-}
-.hero {
-  color: var(--hero-text);
-  padding: 32px clamp(18px, 4vw, 44px) 10px;
-  display: flex;
-  justify-content: space-between;
-  gap: 18px;
-  align-items: flex-start;
-}
-.hero.compact {
-  padding-top: 28px;
-}
-h1,
-h2,
-h3 {
-  color: var(--heading);
-  letter-spacing: 0;
-  overflow-wrap: anywhere;
-}
-.hero h1 {
-  color: var(--hero-title);
-}
-h1 {
-  margin: 0 0 8px;
-  font-size: clamp(26px, 3vw, 38px);
-  line-height: 1.12;
-}
-h2 {
-  margin: 0 0 14px;
-  font-size: 18px;
-  line-height: 1.3;
-}
-h3 {
-  margin: 0 0 8px;
-  font-size: 16px;
-}
-p {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-a {
-  color: var(--accent);
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-.eyebrow {
-  color: var(--muted);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0;
-  margin-bottom: 7px;
-  font-weight: 700;
-}
-.nav-shell {
-  z-index: 20;
-}
-.mobile-nav-toggle {
-  display: none;
-}
-.app-nav {
-  min-width: 0;
-}
-.app-nav a {
-  color: var(--sidebar-ink);
-  font-weight: 700;
-  text-decoration: none;
-  border-radius: 8px;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.app-nav a.active {
-  background: var(--nav-active-bg);
-  color: var(--nav-active-ink);
-  box-shadow: inset 3px 0 0 var(--nav-active-ink);
-}
-.nav-brand {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 18px;
-  padding: 4px 5px 16px;
-  color: var(--sidebar-ink);
-}
-.nav-brand small {
-  display: block;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.35;
-  font-weight: 400;
-}
-.nav-logo {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  border-radius: 8px;
-  background: var(--accent);
-  color: #ffffff;
-  font-weight: 800;
-}
-.theme-panel {
-  display: grid;
-  gap: 8px;
-}
-.theme-label {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-.theme-options {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
-  padding: 4px;
-  border-radius: 8px;
-  background: var(--panel-soft);
-  border: 1px solid var(--line);
-}
-.theme-options button {
-  border: 0;
-  border-radius: 7px;
-  padding: 8px 6px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-.theme-options button.active,
-.theme-options button[aria-pressed="true"] {
-  background: var(--panel);
-  color: var(--heading);
-  box-shadow: var(--soft-shadow);
-}
-section {
-  margin: 22px clamp(18px, 4vw, 44px);
-  max-width: 100%;
-}
-article {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 16px;
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-  box-shadow: var(--shadow);
-}
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: end;
-  padding: 14px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: var(--soft-shadow);
-}
-.toolbar label,
-.result-strip label {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--muted);
-  font-weight: 700;
-  min-width: 150px;
-}
-.search-box {
-  flex: 1 1 300px;
-}
-input,
-select,
-button,
-.button {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 9px 10px;
-  font: inherit;
-  background: var(--input-bg);
-  color: var(--ink);
-  max-width: 100%;
-}
-button,
-.button {
-  font-weight: 700;
-  cursor: pointer;
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-}
-.button.inverse {
-  background: var(--panel);
-  color: var(--heading);
-}
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 12px;
-}
-.metric {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 14px;
-  min-width: 0;
-  box-shadow: var(--soft-shadow);
-}
-.metric strong {
-  display: block;
-  font-size: 26px;
-  margin-bottom: 4px;
-  overflow-wrap: anywhere;
-}
-.grid {
-  display: grid;
-  gap: 16px;
-}
-.grid.two {
-  grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
-}
-.grid.three {
-  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
-}
-.result-strip {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-.hbar-row {
-  display: grid;
-  grid-template-columns: minmax(100px, 1fr) minmax(120px, 2fr) auto;
-  gap: 10px;
-  align-items: center;
-  margin: 9px 0;
-  min-width: 0;
-}
-.hbar-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-.hbar-track {
-  height: 10px;
-  background: var(--panel-soft);
-  border-radius: 999px;
-  overflow: hidden;
-}
-.hbar-fill {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-}
-.status {
-  display: inline-block;
-  max-width: 100%;
-  padding: 5px 9px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  white-space: normal;
-  line-height: 1.15;
-  overflow-wrap: anywhere;
-}
-.passed {
-  color: var(--ok);
-  background: color-mix(in srgb, var(--ok) 16%, transparent);
-}
-.failed,
-.broken,
-.failed_broken {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 16%, transparent);
-}
-.skipped,
-.warning {
-  color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 18%, transparent);
-}
-.unknown,
-.not_configured {
-  color: var(--muted);
-  background: var(--panel-soft);
-}
-.low {
-  color: var(--ok);
-  background: color-mix(in srgb, var(--ok) 16%, transparent);
-}
-.medium {
-  color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 18%, transparent);
-}
-.high {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 16%, transparent);
-}
-.score-line {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-  justify-items: end;
-}
-.score-line strong {
-  font-size: 28px;
-}
-.signal-row {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-.report-card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr));
-  gap: 14px;
-}
-.report-card {
-  display: grid;
-  gap: 12px;
-  align-content: start;
-}
-.card-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
-}
-.card-head > * {
-  min-width: 0;
-}
-.card-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.mini-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-}
-.mini-metrics span {
-  background: var(--panel-soft);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px;
-  min-width: 0;
-}
-.muted {
-  color: var(--muted);
-}
-.attention-list,
-.impact-list {
-  display: grid;
-  gap: 10px;
-}
-.attention-item,
-.impact-item {
-  border-left: 4px solid var(--danger);
-  background: color-mix(in srgb, var(--danger) 8%, var(--panel));
-  border-radius: 8px;
-  padding: 10px 12px;
-  min-width: 0;
-}
-.impact-runs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-}
-.impact-pill {
-  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line));
-  color: var(--danger);
-  border-radius: 999px;
-  padding: 5px 9px;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-.tag-cloud {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.tag {
-  background: var(--panel-soft);
-  color: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 5px 8px;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.table-wrap {
-  width: 100%;
-  max-width: 100%;
-  overflow-x: auto;
-  border-radius: 8px;
-  scrollbar-gutter: stable;
-  -webkit-overflow-scrolling: touch;
-}
-table {
-  border-collapse: collapse;
-  width: 100%;
-  min-width: 820px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  table-layout: fixed;
-}
-th,
-td {
-  border-bottom: 1px solid var(--line);
-  padding: 10px;
-  text-align: left;
-  vertical-align: top;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  min-width: 0;
-}
-th {
-  background: var(--table-head);
-  color: var(--muted);
-  text-transform: uppercase;
-  font-size: 12px;
-  letter-spacing: 0;
-}
-.empty-state {
-  color: var(--muted);
-  padding: 18px;
-  background: var(--panel);
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-}
-svg {
-  width: 100%;
-  max-width: 100%;
-  height: auto;
-}
-@media (min-width: 721px) {
-  body {
-    padding-left: var(--sidebar-width);
-  }
-  .nav-shell {
-    position: fixed;
-    inset: 0 auto 0 0;
-    width: var(--sidebar-width);
-    display: flex;
-    flex-direction: column;
-    background: var(--sidebar-bg);
-    border-right: 1px solid var(--line);
-    padding: 20px 12px;
-    overflow-y: auto;
-  }
-  .app-nav {
-    display: flex;
-    min-height: 100%;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .app-nav a:not(.nav-brand) {
-    display: block;
-    padding: 10px 12px;
-  }
-  .app-nav a:not(.nav-brand):hover {
-    background: var(--nav-hover);
-  }
-  .theme-panel {
-    margin-top: auto;
-    padding-top: 16px;
-    border-top: 1px solid var(--line);
-  }
-}
-@media (max-width: 720px) {
-  .hero {
-    flex-direction: column;
-    padding: 24px 16px 8px;
-  }
-  .nav-shell {
-    position: sticky;
-    top: 0;
-    display: grid;
-    gap: 8px;
-    padding: 10px 12px;
-    background: color-mix(in srgb, var(--panel) 94%, transparent);
-    border-bottom: 1px solid var(--line);
-    box-shadow: var(--soft-shadow);
-    backdrop-filter: blur(12px);
-  }
-  .mobile-nav-toggle {
-    display: flex;
-    width: 100%;
-    align-items: center;
-    justify-content: space-between;
-    font-weight: 800;
-    background: var(--panel);
-  }
-  .mobile-nav-toggle::after {
-    content: "Open";
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 700;
-  }
-  .nav-shell.open .mobile-nav-toggle::after {
-    content: "Close";
-  }
-  .app-nav {
-    display: none;
-    max-height: min(70vh, 440px);
-    overflow: auto;
-    gap: 5px;
-    padding: 8px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-  }
-  .nav-shell.open .app-nav {
-    display: grid;
-  }
-  .nav-brand {
-    margin: 0 0 8px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--line);
-  }
-  .app-nav a:not(.nav-brand) {
-    padding: 10px;
-    text-align: left;
-    line-height: 1.2;
-  }
-  .theme-panel {
-    padding-top: 10px;
-    border-top: 1px solid var(--line);
-  }
-  section {
-    margin: 18px 16px;
-  }
-  .toolbar label {
-    flex: 1 1 100%;
-  }
-  .hbar-row {
-    grid-template-columns: 1fr;
-  }
-  .hbar-label {
-    white-space: normal;
-    overflow: visible;
-    text-overflow: clip;
-    overflow-wrap: anywhere;
-  }
-  .card-head {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-  .score-line {
-    justify-items: start;
-  }
-  .table-wrap.wide {
-    overflow-x: visible;
-  }
-  .table-wrap.wide table {
-    min-width: 0;
-    border: 0;
-    background: transparent;
-    table-layout: auto;
-  }
-  .table-wrap.wide thead {
-    display: none;
-  }
-  .table-wrap.wide tbody,
-  .table-wrap.wide tr,
-  .table-wrap.wide td {
-    display: block;
-    width: 100%;
-  }
-  .table-wrap.wide tr {
-    margin: 0 0 12px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: var(--panel);
-    padding: 8px 10px;
-  }
-  .table-wrap.wide td {
-    border-bottom: 1px solid var(--line);
-    padding: 8px 0;
-  }
-  .table-wrap.wide td:last-child {
-    border-bottom: 0;
-  }
-  .table-wrap.wide td::before {
-    content: attr(data-label);
-    display: block;
-    margin-bottom: 3px;
-    color: var(--muted);
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-  }
-  .table-wrap.wide td[colspan]::before {
-    display: none;
-  }
-  .mini-metrics {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-"""
 
 
 def _portfolio_script(page_kind: str) -> str:
@@ -1208,13 +615,13 @@ function setupNavigation() {{
   if (toggle) toggle.addEventListener('click', () => setOpen(!shell.classList.contains('open')));
   shell.querySelectorAll('.app-nav a').forEach((link) => {{
     link.addEventListener('click', () => {{
-      if (window.matchMedia('(max-width: 720px)').matches) setOpen(false);
+      if (window.matchMedia('(max-width: 900px)').matches) setOpen(false);
     }});
   }});
   window.addEventListener('keydown', (event) => {{
     if (event.key === 'Escape') setOpen(false);
   }});
-  window.matchMedia('(min-width: 721px)').addEventListener('change', () => setOpen(false));
+  window.matchMedia('(min-width: 901px)').addEventListener('change', () => setOpen(false));
 }}
 function portfolioData() {{
   const node = document.getElementById('portfolio-data-json');

@@ -334,7 +334,10 @@ def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
     detail_html = next(
         page for page in (tmp_path / "product" / "tests").glob("*.html") if "login" in page.name
     ).read_text(encoding="utf-8")
-    assert "Run Health" in index_html
+    assert "overview-hero" in index_html
+    assert "Key Wins" in index_html
+    assert "Focus Areas" in index_html
+    assert "Action Retries" in index_html
     assert 'href="executive.html"' in index_html
     assert 'href="compare.html"' in index_html
     assert 'href="share.html"' in index_html
@@ -363,7 +366,7 @@ def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
         assert "word/document.xml" in document.namelist()
         assert "Automation Report Executive Summary" in document.read("word/document.xml").decode("utf-8")
     assert "<svg" in (tmp_path / "product" / "exports" / "share-card.svg").read_text(encoding="utf-8")
-    assert "Signal Counts" in index_html
+    assert "signal-chip-strip" in index_html
     assert "Failure Clusters" in index_html
     assert "Flaky Breakdown" in index_html
     assert "Status Distribution" in index_html

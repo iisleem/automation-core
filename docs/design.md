@@ -386,18 +386,18 @@ failures that now pass or are absent are listed as resolved.
 ### Enterprise static report experience
 
 The product report remains a portable static artifact: `index.html` works from local files or CI artifacts without a
-server or external CDN. The shared shell links Dashboard, Executive, Quality, Compare, Tests, Timeline, Flaky, Matrix, History, and Share consistently.
+server or external CDN. The shared shell links Overview, Executive, Quality Gates, Compare, Tests, Timeline, Flaky, Matrix, History, and Share & Export consistently.
 Pages include self-contained CSS/JavaScript for search, filtering, sorting, charts, and matrix view toggles.
 The shell follows the device theme by default, offers light/dark overrides, uses a persistent sidebar on wider
 screens, and switches to a compact mobile drawer on narrow screens.
 
-At the finalizer level, the report root is also a portable portfolio artifact. The root Dashboard summarizes every
+At the finalizer level, the report root is also a portable portfolio artifact. The root Portfolio Dashboard summarizes every
 retained report with search/filter controls, pass-rate trend, quality score trend, risk levels, run outcome chart,
 failure category chart, framework health, attention list, and metadata coverage. The Reports page renders every
 retained run as selectable cards or a table with direct links to that run's dashboard, executive page, compare page,
 tests page, and share page.
 
-The Dashboard includes status distribution, duration distribution, slowest tests, failure category, retry signal,
+The run Overview includes status distribution, duration distribution, slowest tests, failure category, retry signal,
 artifact type, quality score, risk signal, recovery, and history trend charts. The Compare page shows current vs
 previous deltas, new/known/resolved failure movement, stability, and resource-efficiency. The Tests Explore page uses
 the sidecar test index for global search, filters, sorting, table/card views, and filtered chart summaries. Matrix
