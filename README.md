@@ -17,7 +17,7 @@ See [Template Repository Strategy](docs/template_strategy.md) for the product-fa
 From GitHub after the repository is published:
 
 ```bash
-pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.11.2"
+pip install "automation-core @ git+https://github.com/iisleem/automation-core.git@v0.11.3"
 ```
 
 For local development:
@@ -38,6 +38,9 @@ pytest
 - Data, file, structured file, text, URL, date/time, secrets, cleanup, soft assertion, security, and response timing helpers.
 
 ## Version Notes
+
+`0.11.3` fixes long run identifiers in metric cards so comparison summaries stay contained at
+desktop and narrow widths.
 
 `0.11.2` improves long-label readability in report charts and test tables while keeping the shared
 design-system shell consistent across retained portfolio pages and per-run reports.
