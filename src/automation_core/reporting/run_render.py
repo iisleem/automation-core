@@ -1111,7 +1111,7 @@ function fdur(ms){ms=Number(ms)||0;if(ms<1000)return Math.round(ms)+'ms';var s=m
 function statusColors(s){return {passed:['var(--pass)','var(--passSoft)'],failed:['var(--fail)','var(--failSoft)'],broken:['var(--broken)','var(--brokenSoft)'],skipped:['var(--skip)','var(--skipSoft)']}[String(s).toLowerCase()]||['var(--muted)','var(--surfaceAlt)'];}
 function countBy(items,fn){return items.reduce(function(a,x){var k=fn(x);if(!k)return a;a[k]=(a[k]||0)+1;return a;},{});}
 function bars(obj,color){var e=Object.entries(obj).filter(function(x){return x[1];});if(!e.length)return '<p style="font-size:13px;color:var(--faint);">No data.</p>';var mx=Math.max.apply(null,e.map(function(x){return x[1];}));
- return e.map(function(x){return '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;"><span style="width:130px;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="'+esc(x[0])+'">'+esc(x[0])+'</span><div style="flex:1;height:10px;border-radius:100px;background:var(--surfaceAlt);overflow:hidden;"><span style="display:block;height:100%;width:'+(x[1]/mx*100)+'%;background:'+color+';border-radius:100px;"></span></div><strong style="font-family:\'IBM Plex Mono\',monospace;font-size:12.5px;min-width:20px;text-align:right;">'+x[1]+'</strong></div>';}).join('');}
+ return e.map(function(x){var col=(typeof color==='function')?color(x[0]):color;return '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;"><span style="width:130px;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="'+esc(x[0])+'">'+esc(x[0])+'</span><div style="flex:1;height:10px;border-radius:100px;background:var(--surfaceAlt);overflow:hidden;"><span style="display:block;height:100%;width:'+(x[1]/mx*100)+'%;background:'+col+';border-radius:100px;"></span></div><strong style="font-family:\'IBM Plex Mono\',monospace;font-size:12.5px;min-width:20px;text-align:right;">'+x[1]+'</strong></div>';}).join('');}
 function render(){
   var items=rd().test_index||[];
   var q=(document.getElementById('ex-search').value||'').toLowerCase();
@@ -1129,7 +1129,7 @@ function render(){
   var sort=val('ex-sort');
   out.sort(function(a,b){if(sort==='duration_desc')return b.duration_ms-a.duration_ms;if(sort==='duration_asc')return a.duration_ms-b.duration_ms;if(sort==='name')return String(a.name).localeCompare(b.name);return String(a.status).localeCompare(b.status);});
   document.getElementById('ex-count').textContent=out.length+' test'+(out.length===1?'':'s');
-  document.getElementById('ex-status-chart').innerHTML=bars(countBy(out,function(t){return t.status;}),'var(--pass)');
+  document.getElementById('ex-status-chart').innerHTML=bars(countBy(out,function(t){return t.status;}),function(k){return statusColors(k)[0];});
   document.getElementById('ex-duration-chart').innerHTML=bars(countBy(out,function(t){return t.duration_bucket;}),'var(--accent)');
   document.getElementById('ex-failure-chart').innerHTML=bars(countBy(out,function(t){return (t.failure||{}).category;}),'var(--fail)');
   var head=['Status','Test','Platform','Domain','Duration','Failure'].map(function(h){return '<th style="padding:14px 16px;text-align:left;font-size:11px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--faint);background:var(--surfaceAlt);">'+h+'</th>';}).join('');
@@ -1620,6 +1620,11 @@ def render_share(report_data: dict[str, Any]) -> str:
             "Failure detail, timeline events, retries, and artifacts.",
             [("Timeline", "timeline.html"), ("Tests Explore", "explore.html")],
         )
+        + stakeholder(
+            "Release",
+            "Readiness headline, run history, and export bundle.",
+            [("History", "history.html"), ("Overview", "index.html")],
+        )
         + "</div>"
     )
 
@@ -1754,6 +1759,14 @@ def render_test_detail(report_data: dict[str, Any], test: dict[str, Any], *, pre
                 for k, v in metadata_rows
             )
             or '<p style="font-size:13px; color:var(--faint);">No metadata.</p>'
+        )
+        + (
+            f'<details class="artifact" style="margin-top:14px;"><summary>'
+            f'<span style="font-family:{MONO}; font-size:12.5px;">Raw JSON</span></summary>'
+            f'<div><pre style="font-family:{MONO}; font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; '
+            f'margin:0; color:var(--muted);">{_e(json.dumps(metadata, indent=2))}</pre></div></details>'
+            if metadata
+            else ""
         )
     )
 
