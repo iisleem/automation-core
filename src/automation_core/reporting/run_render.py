@@ -19,6 +19,19 @@ from automation_core.reporting import shell
 MONO = "'IBM Plex Mono',monospace"
 DISPLAY = "'Manrope',sans-serif"
 PLATFORM_COLORS = {"web": "var(--accent)", "mobile": "var(--flaky)", "api": "var(--broken)"}
+_FAILURE_RECOMMENDATIONS = {
+    "api contract mismatch": "Review schema or contract validation output and sanitized request/response artifacts.",
+    "api_contract_mismatch": "Review schema or contract validation output and sanitized request/response artifacts.",
+    "webview context missing": "Check context discovery, hybrid app readiness, platform capabilities, and context switch timing.",
+    "webview_context_missing": "Check context discovery, hybrid app readiness, platform capabilities, and context switch timing.",
+    "assertion_mismatch": "Compare expected and actual values; confirm the assertion and test data are current.",
+    "assertion mismatch": "Compare expected and actual values; confirm the assertion and test data are current.",
+    "timeout": "Increase the wait or investigate the slow dependency; check network and environment readiness.",
+    "element_not_found": "Verify the locator and page state; consider a stability wait or self-healing candidate.",
+    "auth_config_issue": "Check credentials, tokens, and environment auth configuration.",
+    "appium_server_unreachable": "Confirm the Appium server, device/simulator, and driver session are available.",
+}
+
 STATUS_COLORS = {
     "passed": ("var(--pass)", "var(--passSoft)"),
     "failed": ("var(--fail)", "var(--failSoft)"),
@@ -774,21 +787,33 @@ def _print_button() -> str:
     )
 
 
+def _known_issue_tests(report_data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Failing/broken tests carrying a known-issue tag."""
+
+    known: list[dict[str, Any]] = []
+    for test in report_data.get("test_index", []):
+        issue = (test.get("metadata") or {}).get("known_issue")
+        if issue and str(test.get("status", "")).lower() in ("failed", "broken", "error"):
+            known.append(
+                {"name": test.get("name", ""), "detail_href": test.get("detail_href", "#"), "known_issue": issue}
+            )
+    return known
+
+
 def _known_issues_card(report_data: dict[str, Any]) -> str:
-    known = report_data.get("failure_transitions", {}).get("known_failures", [])
+    known = _known_issue_tests(report_data)
     if not known:
         body = '<p style="font-size:13px; color:var(--faint);">No known issues tracked this run.</p>'
     else:
-        rows = "".join(
+        body = "".join(
             '<div style="display:flex; justify-content:space-between; gap:14px; padding:10px 0; '
             'border-top:1px solid var(--border);">'
             f'<a href="{_e(k.get("detail_href", "#"))}" style="font-family:{MONO}; font-size:12.5px; '
             f'color:var(--link); text-decoration:none; overflow-wrap:anywhere; min-width:0;">{_e(k.get("name", ""))}</a>'
-            f'<span style="font-family:{MONO}; font-size:12px; color:var(--muted); flex-shrink:0;">'
+            f'<span style="font-family:{MONO}; font-size:12px; color:var(--flaky); flex-shrink:0;">'
             f"{_e(k.get('known_issue', ''))}</span></div>"
             for k in known
         )
-        body = rows
     return _card(_title("Known Issues") + body)
 
 
@@ -796,7 +821,7 @@ def _what_changed_card(report_data: dict[str, Any]) -> str:
     transitions = report_data.get("failure_transitions", {})
     counts = transitions.get("counts", {})
     new = _filtered_new_failures(report_data)
-    known = transitions.get("known_failures", [])
+    known = _known_issue_tests(report_data)
     resolved_count = counts.get("resolved", 0)
 
     def links(items: list[dict[str, Any]]) -> str:
@@ -811,7 +836,7 @@ def _what_changed_card(report_data: dict[str, Any]) -> str:
         f"New failures ({len(new)})</div>"
         + links(new)
         + f'<div style="font-size:13.5px; font-weight:700; color:var(--flaky); margin:12px 0 4px;">'
-        f"Persistent known issues ({counts.get('known', 0)})</div>"
+        f"Persistent known issues ({len(known)})</div>"
         + links(known)
         + f'<p style="font-size:13px; color:var(--muted); margin:12px 0 0;">{resolved_count} test(s) fixed since '
         "previous run.</p>"
@@ -1163,12 +1188,17 @@ function render(){
     if(q&&hay.indexOf(q)<0)return '';
     var col=statusColor(t.status);
     var steps=evs.length?evs:[{title:'Started',event_type:'started',status:t.status},{title:'Finished',event_type:'finished',status:t.status}];
-    var t0=steps.length&&steps[0].timestamp?new Date(steps[0].timestamp).getTime():null;
+    var elapsed=0;
     var stepper=steps.map(function(e,i){
       var et=String(e.event_type||'').toLowerCase();
       var ec=(/artifact|capture|healing/.test(et))?'var(--accent)':((et==='test_started'||et==='test_finished'||et==='started'||et==='finished')?col:statusColor(e.status||t.status));
       var connector=i<steps.length-1?'<div style="flex:1;height:2px;background:var(--border);margin:0 8px;align-self:flex-start;margin-top:6px;"></div>':'';
-      var ts=e.offset_ms!=null?fdur(e.offset_ms):((t0!=null&&e.timestamp)?fdur(new Date(e.timestamp).getTime()-t0):'');
+      // Offset = elapsed execution time when the event occurred (cumulative from durations); finished reflects the whole test.
+      var off;
+      if(et==='test_started'||et==='started')off=0;
+      else if(et==='test_finished'||et==='finished')off=Math.max(elapsed,Number(t.duration_ms)||0);
+      else {elapsed+=Number(e.duration_ms)||0;off=elapsed;}
+      var ts=e.offset_ms!=null?fdur(e.offset_ms):fdur(off);
       return '<div style="display:flex;flex-direction:column;align-items:center;text-align:center;min-width:110px;"><span style="width:13px;height:13px;border-radius:50%;background:'+ec+';"></span><strong style="font-size:12.5px;margin-top:8px;">'+esc(evLabel(e))+'</strong><span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;color:var(--faint);margin-top:3px;">'+esc(ts)+'</span></div>'+connector;
     }).join('');
     return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);padding:22px;">'
@@ -1224,14 +1254,29 @@ def render_flaky(report_data: dict[str, Any]) -> str:
         extra="margin-bottom:20px;",
     )
     clusters = report_data.get("failure_clusters", [])
+    by_id = {t.get("test_id"): t for t in report_data.get("test_index", [])}
+
+    def cluster_signature(cluster: dict[str, Any]) -> str:
+        for ref in cluster.get("tests", []):
+            record = by_id.get(ref.get("test_id"))
+            if record:
+                msg = record.get("failure_message") or record.get("failure", {}).get("detail")
+                if msg:
+                    return str(msg)
+        return cluster.get("signature") or cluster.get("message") or ""
+
+    def cluster_recommendation(cluster: dict[str, Any]) -> str:
+        category = str(cluster.get("category", "")).lower()
+        return _FAILURE_RECOMMENDATIONS.get(category) or cluster.get("detail") or "Review failure output and artifacts."
+
     cluster_cards = "".join(
         _card(
             f'<div style="font-family:{DISPLAY}; font-size:15px; font-weight:700; margin-bottom:8px;">'
             f"{_e(c.get('category', ''))} · {int(c.get('count', 0) or 0)}</div>"
             f'<div style="font-family:{MONO}; font-size:13px; color:var(--fail); line-height:1.5; overflow-wrap:anywhere;">'
-            f"{_e(c.get('signature', c.get('message', '')))}</div>"
+            f"{_e(cluster_signature(c))}</div>"
             f'<p style="font-size:13px; color:var(--muted); margin:10px 0 0; line-height:1.5;">'
-            f"{_e(c.get('recommendation', 'Review failure output and artifacts.'))}</p>"
+            f"{_e(cluster_recommendation(c))}</p>"
         )
         for c in clusters[:2]
     )
@@ -1254,14 +1299,33 @@ def render_flaky(report_data: dict[str, Any]) -> str:
         + quar
         + cluster_row
         + _card(
+            '<div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">'
             '<input id="fl-search" type="search" placeholder="Category, test, reason, status" '
-            'style="width:100%; padding:13px 16px; border-radius:10px; border:1px solid var(--border); '
-            'background:var(--surface); color:var(--text); font-size:15px; font-family:inherit;">',
+            'style="flex:1; min-width:200px; padding:13px 16px; border-radius:10px; border:1px solid var(--border); '
+            'background:var(--surface); color:var(--text); font-size:15px; font-family:inherit;">'
+            + _flaky_select("fl-category", "All categories", report_data.get("flaky", {}).get("breakdown", {}))
+            + _flaky_select(
+                "fl-status",
+                "All statuses",
+                dict.fromkeys(report_data.get("aggregates", {}).get("filter_options", {}).get("status", [])),
+            )
+            + "</div>",
             extra="margin-bottom:20px;",
         )
         + _card('<div id="fl-table" style="overflow-x:auto;"></div>', pad=0, extra="overflow:hidden;")
     )
     return _document(report_data, "flaky", "Flaky Analysis", main, scripts=_FLAKY_JS)
+
+
+def _flaky_select(id_: str, label: str, options: dict[str, Any]) -> str:
+    opts = f'<option value="">{_e(label)}</option>' + "".join(
+        f'<option value="{_e(o)}">{_e(o)}</option>' for o in options
+    )
+    return (
+        f'<select id="{id_}" style="padding:12px 14px; border-radius:9px; border:1px solid var(--border); '
+        f'background:var(--surface); color:var(--text); font-size:13px; font-family:inherit; cursor:pointer;">'
+        f"{opts}</select>"
+    )
 
 
 _FLAKY_JS = r"""
@@ -1271,7 +1335,10 @@ function fdur(ms){ms=Number(ms)||0;if(ms<1000)return (Math.round(ms/100)/10)+'s'
 function sc(s){return {passed:['var(--pass)','var(--passSoft)'],failed:['var(--fail)','var(--failSoft)'],broken:['var(--broken)','var(--brokenSoft)'],skipped:['var(--skip)','var(--skipSoft)']}[String(s).toLowerCase()]||['var(--muted)','var(--surfaceAlt)'];}
 function render(){
   var d=rd();var items=(d.flaky||{}).items||[];var q=(document.getElementById('fl-search').value||'').toLowerCase();
-  var out=items.filter(function(i){return !q||((i.category+' '+i.name+' '+(i.reason||'')+' '+(i.status||'')).toLowerCase().indexOf(q)>=0);});
+  var cat=document.getElementById('fl-category').value;var stt=document.getElementById('fl-status').value;
+  var out=items.filter(function(i){
+    return (!q||((i.category+' '+i.name+' '+(i.reason||'')+' '+(i.status||'')).toLowerCase().indexOf(q)>=0))
+      &&(!cat||i.category===cat)&&(!stt||String(i.status).toLowerCase()===String(stt).toLowerCase());});
   var head=['Category','Test','Status','Duration','Reason'].map(function(h){return '<th style="padding:14px 16px;text-align:left;font-size:11px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--faint);background:var(--surfaceAlt);">'+h+'</th>';}).join('');
   var rows=out.map(function(i){var c=sc(i.status);
     return '<tr><td style="padding:14px 16px;border-top:1px solid var(--border);font-family:\'IBM Plex Mono\',monospace;font-size:12px;color:var(--muted);">'+esc(i.category)+'</td>'
@@ -1282,7 +1349,7 @@ function render(){
   }).join('')||'<tr><td colspan="5" style="padding:40px;text-align:center;color:var(--faint);">No flaky signals match.</td></tr>';
   document.getElementById('fl-table').innerHTML='<table style="width:100%;border-collapse:collapse;font-size:13.5px;"><thead><tr>'+head+'</tr></thead><tbody>'+rows+'</tbody></table>';
 }
-function setupPage(){document.getElementById('fl-search').addEventListener('input',render);render();}
+function setupPage(){['fl-search','fl-category','fl-status'].forEach(function(id){var n=document.getElementById(id);if(n){n.addEventListener('input',render);n.addEventListener('change',render);}});render();}
 """
 
 
@@ -1720,7 +1787,14 @@ def render_test_detail(report_data: dict[str, Any], test: dict[str, Any], *, pre
             )
         )
         + "</div>"
+        + '<div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px;" class="grid-2">'
         + healing
+        + _test_event_card(report_data, test, "step", "Steps", "No steps captured.")
+        + "</div>"
+        + '<div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px;" class="grid-2">'
+        + _test_event_card(report_data, test, "test_retry", "Retries", "No retries.")
+        + _test_event_card(report_data, test, "action_retry", "Action Retry Attempts", "No retries.")
+        + "</div>"
         + artifacts
         + timeline
     )
@@ -1729,6 +1803,37 @@ def render_test_detail(report_data: dict[str, Any], test: dict[str, Any], *, pre
     return shell.document(
         f"Test · {test.get('name', '')}", sidebar_html=sidebar_html, main_html=main, data_json_script=""
     )
+
+
+def _test_event_card(
+    report_data: dict[str, Any], test: dict[str, Any], event_type: str, title: str, empty_msg: str
+) -> str:
+    tid = test.get("test_id")
+    events = [
+        e
+        for e in report_data.get("timeline", {}).get("events", [])
+        if e.get("test_id") == tid and str(e.get("event_type")) == event_type
+    ]
+    if not events:
+        return _card(_title(title) + f'<p style="font-size:13px; color:var(--faint);">{_e(empty_msg)}</p>')
+    rows = []
+    for event in events:
+        status = str(event.get("status") or "")
+        reason = (event.get("metadata") or {}).get("reason") or ""
+        pill = _pill(status, status) if status else ""
+        reason_html = (
+            f'<div style="font-size:12.5px; color:var(--muted); margin-top:4px; overflow-wrap:anywhere;">'
+            f"{_e(reason)}</div>"
+            if reason
+            else ""
+        )
+        rows.append(
+            '<div style="padding:10px 0; border-top:1px solid var(--border);">'
+            '<div style="display:flex; justify-content:space-between; gap:12px; align-items:center;">'
+            f'<span style="font-family:{MONO}; font-size:12.5px; overflow-wrap:anywhere;">{_e(_event_label(event))}</span>'
+            f"{pill}</div>{reason_html}</div>"
+        )
+    return _card(_title(title) + "".join(rows))
 
 
 def _stability_card(report_data: dict[str, Any], test: dict[str, Any]) -> str:
