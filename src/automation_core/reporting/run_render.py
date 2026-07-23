@@ -1611,14 +1611,76 @@ def render_share(report_data: dict[str, Any]) -> str:
             f'<p style="font-size:13.5px; color:var(--muted); margin:0; line-height:1.5;">{_e(body)}</p>{btn}'
         )
 
-    export_row = (
-        '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:20px; margin-bottom:20px;" class="grid-3">'
-        + export_card(
-            "Export Tests (CSV)",
-            "Flat index of every test in this run for spreadsheets.",
-            "Download CSV",
-            exports.get("test_index_csv", ""),
+    def download_card(title: str, body: str, key: str, link_label: str) -> str:
+        href = exports.get(key, "")
+        if not href:
+            unavailable = (
+                '<span style="display:inline-block; margin-top:14px; padding:10px 18px; border-radius:9px; '
+                "border:1px dashed var(--border); background:var(--surfaceAlt); color:var(--faint); "
+                'font-size:13px; font-weight:600;">Not generated for this run</span>'
+            )
+            return _card(
+                f'<h3 style="font-family:{DISPLAY}; font-size:17px; font-weight:700; margin:0 0 8px;">{_e(title)}</h3>'
+                f'<p style="font-size:13.5px; color:var(--muted); margin:0; line-height:1.5;">{_e(body)}</p>{unavailable}'
+            )
+        btn = (
+            f'<a href="{_e(href)}" download style="display:inline-block; margin-top:14px; padding:10px 18px; '
+            "border-radius:9px; border:1px solid var(--border); background:var(--surface); color:var(--text); "
+            f'font-size:13.5px; font-weight:700; text-decoration:none; box-shadow:var(--shadow);">{_e(link_label)}</a>'
         )
+        return _card(
+            f'<h3 style="font-family:{DISPLAY}; font-size:17px; font-weight:700; margin:0 0 8px;">{_e(title)}</h3>'
+            f'<p style="font-size:13.5px; color:var(--muted); margin:0; line-height:1.5;">{_e(body)}</p>{btn}'
+        )
+
+    # Every generated export gets its own card. Files are written to the run's
+    # exports/ folder by product.py; if a manifest entry is missing we show an
+    # honest "not generated" state instead of implying the export does not exist.
+    downloads = (
+        f'<h2 style="font-family:{DISPLAY}; font-size:18px; font-weight:800; margin:8px 0 16px;">Exports</h2>'
+        '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:20px; margin-bottom:20px;" class="grid-3">'
+        + download_card(
+            "Test Index (CSV)",
+            "Flat index of every test in this run for spreadsheets.",
+            "test_index_csv",
+            "Download CSV",
+        )
+        + download_card(
+            "Test Index (Excel)",
+            "The same test index as a native .xlsx workbook.",
+            "test_index_xlsx",
+            "Download XLSX",
+        )
+        + download_card(
+            "Executive Summary (Word)",
+            "Release readiness and headline metrics as a .docx document.",
+            "executive_summary_docx",
+            "Download DOCX",
+        )
+        + download_card(
+            "Share Card (SVG)",
+            "A compact status card image for chat, slides, or dashboards.",
+            "share_card_svg",
+            "Download SVG",
+        )
+        + download_card(
+            "Report Bundle (JSON)",
+            "The full neutral report dataset for programmatic reuse.",
+            "report_bundle_json",
+            "Download JSON",
+        )
+        + download_card(
+            "Share Manifest (JSON)",
+            "Page and export inventory describing this published run.",
+            "share_manifest_json",
+            "Download JSON",
+        )
+        + "</div>"
+    )
+
+    share_actions = (
+        f'<h2 style="font-family:{DISPLAY}; font-size:18px; font-weight:800; margin:8px 0 16px;">Share</h2>'
+        '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:20px; margin-bottom:20px;" class="grid-3">'
         + export_card("Copy Share Link", "Direct link to this run for stakeholders.", "", "").replace(
             "</p>",
             '</p><button type="button" data-copy-share-link style="display:inline-block; margin-top:14px; '
@@ -1628,12 +1690,13 @@ def render_share(report_data: dict[str, Any]) -> str:
         )
         + export_card(
             "Print / PDF Summary",
-            "Print the current page using your browser's print dialog.",
+            "Open a print-friendly summary and use your browser's print dialog.",
             "Print Summary",
             "print-summary.html",
         )
         + "</div>"
     )
+    export_row = downloads + share_actions
 
     def stakeholder(title: str, body: str, links: list[tuple[str, str]]) -> str:
         btns = "".join(

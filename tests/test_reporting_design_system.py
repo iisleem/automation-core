@@ -132,6 +132,31 @@ def test_matrix_uses_design_dimensions():
     assert sidecar["matrix"]["owner"]["web-guild"]["pass_rate"] == 100.0
 
 
+def test_share_page_surfaces_every_generated_export(tmp_path):
+    product = tmp_path / "product"
+    generate_reporting_product(_mixed_report(), product, update_history_file=False)
+    share = (product / "share.html").read_text(encoding="utf-8")
+
+    # Every export the product writes to disk is reachable from the Share page.
+    generated = {
+        "exports/test-index.csv",
+        "exports/test-index.xlsx",
+        "exports/executive-summary.docx",
+        "exports/share-card.svg",
+        "exports/report-bundle.json",
+        "exports/share-manifest.json",
+    }
+    for rel in generated:
+        assert (product / rel).exists(), f"missing export file {rel}"
+        assert rel in share, f"share page does not link {rel}"
+    # Download affordances (not just inline links) are present.
+    assert "download" in share
+    # Human labels for the previously-hidden formats.
+    assert "Download XLSX" in share
+    assert "Download DOCX" in share
+    assert "Share Card (SVG)" in share
+
+
 def test_expected_features_flag_coverage_gaps(tmp_path):
     generate_reporting_product(
         _mixed_report(),

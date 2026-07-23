@@ -349,7 +349,7 @@ def test_reporting_product_writes_sidecar_and_polished_sections(tmp_path):
     assert "Executive Summary" in executive_html
     assert "Share &amp; Export" in share_html
     assert "Stakeholder Views" in share_html
-    assert "Export Tests (CSV)" in share_html
+    assert "Test Index (CSV)" in share_html
     assert "Artifact Index" in share_html
 
     assert (tmp_path / "product" / "print-summary.html").exists()
