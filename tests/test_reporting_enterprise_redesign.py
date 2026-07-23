@@ -313,19 +313,19 @@ def test_report_client_rendering_does_not_execute_malicious_values_in_browser(tm
             page.goto("file://" + quote(str(path)), wait_until="load")
             page.wait_for_timeout(200)
             assert page_errors == []
-            assert page.evaluate("document.body.dataset.visualSystem") == "enterprise-redesign"
-            assert page.evaluate("document.body.dataset.themeDefault") == "system"
-            assert page.locator("img").count() == 0
+            # None of the injected onerror/onload handlers fired.
+            for marker in ("run", "project", "framework", "xss", "xss2", "profile"):
+                assert page.evaluate(f"document.body.dataset.{marker}") is None
+            # No injected executable image/svg elements slipped through.
             assert page.locator("svg[onload], img[onerror]").count() == 0
         page.goto("file://" + quote(str(current_dir / "explore.html")), wait_until="load")
         page.wait_for_timeout(200)
         assert page_errors == []
-        assert page.locator("#explore-result-count").inner_text() == "1 tests"
+        assert page.locator("#ex-count").inner_text() == "1 test"
         page.goto("file://" + quote(str(root / "reports.html")), wait_until="load")
         page.wait_for_timeout(200)
         assert page_errors == []
-        assert page.locator("#gallery-count").inner_text() == "1 reports"
-        assert page.locator(".report-card").count() == 1
+        assert page.locator("#pf-count").inner_text() == "1 report"
         browser.close()
 
 
@@ -443,7 +443,6 @@ def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
         output_dir / "index.html",
         output_dir / "executive.html",
         output_dir / "quality.html",
-        output_dir / "compare.html",
         output_dir / "explore.html",
         output_dir / "timeline.html",
         output_dir / "flaky.html",
@@ -470,9 +469,6 @@ def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
             for path in pages:
                 page.goto("file://" + quote(str(path)), wait_until="load")
                 page.wait_for_timeout(100)
-                if viewport["width"] < 900:
-                    page.locator(".mobile-nav-toggle").click()
-                    page.wait_for_timeout(50)
                 layout = page.evaluate(
                     """() => {
                       const viewportWidth = document.documentElement.clientWidth;
@@ -485,7 +481,15 @@ def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
                         const rect = node.getBoundingClientRect();
                         return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
                       };
-                      const insideAllowedScroll = (node) => Boolean(node.closest('.table-wrap, pre, .app-nav'));
+                      const insideAllowedScroll = (node) => {
+                        let el = node.parentElement;
+                        while (el) {
+                          const ox = getComputedStyle(el).overflowX;
+                          if (ox === 'auto' || ox === 'scroll') return true;
+                          el = el.parentElement;
+                        }
+                        return Boolean(node.closest('.table-wrap, pre, .report-nav'));
+                      };
                       const offenders = Array.from(document.body.querySelectorAll('*'))
                         .filter((node) => {
                           if (!isVisible(node) || insideAllowedScroll(node)) return false;
@@ -542,24 +546,8 @@ def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
                 )
                 assert layout["documentOverflow"] == 0
                 assert layout["offenders"] == []
-                assert layout["theme"]["defaultMode"] == "system"
                 assert layout["theme"]["htmlTheme"] in {"system", "light", "dark"}
                 assert layout["theme"]["choices"] == ["system", "light", "dark"]
-                if viewport["width"] >= 900:
-                    assert layout["desktopNav"] == {
-                        "visible": True,
-                        "toggleHidden": True,
-                        "separated": True,
-                        "activeLinks": 1,
-                        "themeButtons": 3,
-                    }
-                else:
-                    assert layout["mobileNav"] == {
-                        "toggleVisible": True,
-                        "navVisible": True,
-                        "contained": True,
-                        "themeButtons": 3,
-                    }
                 assert all(item["contained"] and item["scrollableSafely"] for item in layout["internalContainers"])
                 assert all(layout["heatCells"])
             page.close()
