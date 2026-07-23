@@ -113,6 +113,20 @@ def _context_portfolio() -> str:
     )
 
 
+def _context_matrix(ctx: dict[str, Any]) -> str:
+    label = ctx.get("label", "Matrix Dashboard")
+    sub = ctx.get("sub", "")
+    return (
+        "<div style=\"font-family:'Manrope',sans-serif; font-size:15px; font-weight:700; "
+        f'color:var(--text); overflow-wrap:anywhere; line-height:1.3;">{_e(label)}</div>'
+        + (
+            f'<div style="font-size:11px; color:var(--faint); margin-top:6px; line-height:1.5;">{_e(sub)}</div>'
+            if sub
+            else ""
+        )
+    )
+
+
 def _context_report(run: dict[str, Any], prefix: str) -> str:
     run_id = run.get("run_id", "")
     status_label = run.get("status_label", "Ready")
@@ -149,6 +163,9 @@ def sidebar(
     if mode == "report":
         nav = REPORT_NAV
         context = _context_report(run or {}, prefix)
+    elif mode == "matrix":
+        nav = ()
+        context = _context_matrix(run or {})
     else:
         nav = PORTFOLIO_NAV
         context = _context_portfolio()

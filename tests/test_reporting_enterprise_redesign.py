@@ -554,7 +554,39 @@ def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
         browser.close()
 
 
-def test_legacy_matrix_dashboards_do_not_create_document_overflow_on_narrow_viewport(tmp_path):
+def test_matrix_dashboards_use_shared_design_shell(tmp_path):
+    dashboard = generate_environment_matrix_dashboard(
+        [
+            {
+                "env": "staging",
+                "summary": {
+                    "status": "passed",
+                    "total": 10,
+                    "passed": 10,
+                    "failed": 0,
+                    "broken": 0,
+                    "skipped": 0,
+                    "duration_ms": 5000,
+                    "pass_rate": 100,
+                },
+                "report_href": "reports/staging/index.html",
+                "log_href": "logs/staging.log",
+            }
+        ],
+        tmp_path / "env-shell",
+    )
+    html = dashboard.read_text(encoding="utf-8")
+    # Built on the shared shell: sidebar, theme control, and design tokens.
+    assert "data-app-shell" in html
+    assert "app-sidebar" in html
+    assert "data-theme-choice" in html
+    assert "var(--surface)" in html
+    # The old standalone dark-banner dashboard markup is gone.
+    assert "background: #102033" not in html
+    assert "font-family: Arial" not in html
+
+
+def test_matrix_dashboards_do_not_create_document_overflow_on_narrow_viewport(tmp_path):
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     browser_dashboard = generate_browser_matrix_dashboard(
         [
