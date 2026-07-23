@@ -490,7 +490,7 @@ def _signed_dur(ms: Any) -> str:
 def _search_open_explore() -> str:
     return (
         '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:flex-end;">'
-        '<input id="ov-search" type="search" placeholder="Search tests, failures..." '
+        '<input id="ov-search" type="search" aria-label="Search tests and failures" placeholder="Search tests, failures..." '
         'style="padding:9px 14px; border-radius:9px; border:1px solid var(--border); background:var(--surface); '
         'color:var(--text); font-size:13px; flex:1 1 140px; min-width:0; font-family:inherit;">'
         '<a id="ov-explore" href="explore.html" style="padding:10px 16px; border-radius:9px; background:var(--accent); '
@@ -1082,7 +1082,7 @@ def render_explore(report_data: dict[str, Any]) -> str:
         )
 
     toolbar = _card(
-        '<input id="ex-search" type="search" placeholder="Name, suite, status, failure..." '
+        '<input id="ex-search" type="search" aria-label="Search tests" placeholder="Name, suite, status, failure..." '
         'style="width:100%; padding:13px 16px; border-radius:10px; border:1px solid var(--border); '
         'background:var(--surface); color:var(--text); font-size:15px; font-family:inherit; margin-bottom:12px;">'
         '<div style="display:grid; grid-template-columns:repeat(5,1fr); gap:12px;" class="grid-5">'
@@ -1177,7 +1177,7 @@ def render_timeline(report_data: dict[str, Any]) -> str:
     main = (
         _page_header(_run_eyebrow(report_data), "Timeline", "Execution sequence for every test, grouped by test.")
         + _card(
-            '<input id="tl-search" type="search" placeholder="Search test or event" '
+            '<input id="tl-search" type="search" aria-label="Search timeline" placeholder="Search test or event" '
             'style="width:100%; padding:13px 16px; border-radius:10px; border:1px solid var(--border); '
             'background:var(--surface); color:var(--text); font-size:15px; font-family:inherit;">'
         )
@@ -1316,7 +1316,7 @@ def render_flaky(report_data: dict[str, Any]) -> str:
         + cluster_row
         + _card(
             '<div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">'
-            '<input id="fl-search" type="search" placeholder="Category, test, reason, status" '
+            '<input id="fl-search" type="search" aria-label="Search flaky signals" placeholder="Category, test, reason, status" '
             'style="flex:1; min-width:200px; padding:13px 16px; border-radius:10px; border:1px solid var(--border); '
             'background:var(--surface); color:var(--text); font-size:15px; font-family:inherit;">'
             + _flaky_select("fl-category", "All categories", report_data.get("flaky", {}).get("breakdown", {}))
