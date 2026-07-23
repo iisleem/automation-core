@@ -272,6 +272,25 @@ def _single_platform_report(platform: str, run_id: str, day: int) -> RunReport:
     )
 
 
+def test_compare_run_ids_do_not_char_wrap(tmp_path):
+    root = tmp_path / "portfolio"
+    for platform, day in (("web", 14), ("web", 15)):
+        report = _single_platform_report(platform, f"{platform}-run-{day}", day)
+        run_dir = prepare_timestamped_report_dir(root, run_id=report.run_id, generated_at=report.generated_at)
+        generate_reporting_product(report, run_dir, update_history_file=False)
+    generate_report_portfolio(root, current_report_dir=run_dir)
+
+    compare = (root / "compare.html").read_text(encoding="utf-8")
+    # The Delta table keeps run ids and headers on one line so the scroll
+    # container handles overflow instead of breaking a timestamp character by
+    # character down the column.
+    assert "font-weight:600;white-space:nowrap;padding:10px 12px;" in compare
+    assert "text-transform:uppercase;white-space:nowrap;" in compare
+    # Compare chart labels expose the full run id via a hover tooltip.
+    assert "flex-shrink:0;" in compare
+    assert "title=\"'+esc(r.run_id)+'\"" in compare
+
+
 def test_combine_report_portfolios_merges_platforms_and_preserves_runs(tmp_path):
     # Three separate framework report trees, one per platform.
     sources = []
