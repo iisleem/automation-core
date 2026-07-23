@@ -11,6 +11,7 @@ import json
 from datetime import UTC, datetime
 
 from automation_core.reporting import (
+    Artifact,
     RunReport,
     TestCaseReport,
     build_report_data,
@@ -155,6 +156,42 @@ def test_share_page_surfaces_every_generated_export(tmp_path):
     assert "Download XLSX" in share
     assert "Download DOCX" in share
     assert "Share Card (SVG)" in share
+
+
+def test_artifact_index_has_search_and_type_filter(tmp_path):
+    log = tmp_path / "run.log"
+    log.write_text("boom", encoding="utf-8")
+    report = RunReport(
+        run_id="run-artifacts",
+        project_name="automation-core",
+        framework="pytest",
+        generated_at=datetime(2026, 7, 16, tzinfo=UTC),
+        tests=[
+            TestCaseReport(
+                id="web1",
+                name="test_login_web",
+                status="failed",
+                metadata={"platform_type": "web", "browser": "chromium"},
+                artifacts=[
+                    Artifact(name="failure.png", path=str(log), artifact_type="screenshot"),
+                    Artifact(name="run.log", path=str(log), artifact_type="log"),
+                ],
+            ),
+        ],
+    )
+    product = tmp_path / "product"
+    generate_reporting_product(report, product, update_history_file=False)
+    share = (product / "share.html").read_text(encoding="utf-8")
+
+    # Search box and a type filter select are present with accessible labels.
+    assert 'id="art-search"' in share
+    assert 'aria-label="Search artifacts"' in share
+    assert 'id="art-type"' in share
+    assert 'aria-label="Filter by artifact type"' in share
+    # Rows carry the data attributes the client filter keys off.
+    assert "data-artifact-row" in share
+    assert "data-search=" in share
+    assert "data-type=" in share
 
 
 def test_expected_features_flag_coverage_gaps(tmp_path):

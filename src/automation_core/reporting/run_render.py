@@ -1737,25 +1737,55 @@ def render_share(report_data: dict[str, Any]) -> str:
     )
 
     artifacts = report_data.get("artifacts", [])
-    art_rows = (
-        "".join(
-            '<tr><td style="padding:14px 16px; border-top:1px solid var(--border);">'
+    artifact_types = sorted({str(a.get("artifact_type", "")) for a in artifacts if a.get("artifact_type")})
+
+    def _art_row(a: dict[str, Any]) -> str:
+        test_name = a.get("test_name", a.get("name", ""))
+        atype = a.get("artifact_type", "")
+        fname = a.get("name", "")
+        path = a.get("path", "") or ""
+        haystack = " ".join(str(x) for x in (test_name, atype, fname, path)).lower()
+        return (
+            f'<tr data-artifact-row data-type="{_e(atype)}" data-search="{_e(haystack)}">'
+            '<td style="padding:14px 16px; border-top:1px solid var(--border); max-width:420px;">'
             f'<a href="{_e(a.get("href") or "#")}" style="font-family:{MONO}; font-size:12.5px; color:var(--link); '
-            f'text-decoration:none; overflow-wrap:anywhere;">{_e(a.get("test_name", a.get("name", "")))}</a></td>'
-            f'<td style="padding:14px 16px; border-top:1px solid var(--border); font-size:13px; color:var(--muted);">'
-            f"{_e(a.get('artifact_type', ''))}</td></tr>"
-            for a in artifacts
+            f'text-decoration:none; overflow-wrap:anywhere;">{_e(test_name)}</a></td>'
+            '<td style="padding:14px 16px; border-top:1px solid var(--border); font-size:13px; color:var(--muted); '
+            f'white-space:nowrap;">{_e(atype or "—")}</td>'
+            '<td style="padding:14px 16px; border-top:1px solid var(--border); font-family:'
+            f'{MONO}; font-size:12px; color:var(--muted); overflow-wrap:anywhere;">{_e(fname or "—")}</td></tr>'
         )
-        or '<tr><td colspan="2" style="padding:24px; color:var(--faint);">No artifacts captured.</td></tr>'
+
+    art_rows = "".join(_art_row(a) for a in artifacts) or (
+        '<tr><td colspan="3" style="padding:24px; color:var(--faint);">No artifacts captured.</td></tr>'
     )
     art_head = "".join(
         f'<th style="padding:12px 16px; text-align:left; font-size:11px; font-weight:700; letter-spacing:0.05em; '
         f'text-transform:uppercase; color:var(--faint); background:var(--surfaceAlt);">{h}</th>'
-        for h in ("Test", "Artifact Type")
+        for h in ("Test", "Artifact Type", "File")
+    )
+    art_type_opts = '<option value="">All types</option>' + "".join(
+        f'<option value="{_e(t)}">{_e(t)}</option>' for t in artifact_types
+    )
+    art_toolbar = (
+        '<div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:14px;">'
+        '<input id="art-search" type="search" aria-label="Search artifacts" '
+        'placeholder="Search by test, type, or file name..." '
+        'style="flex:1; min-width:200px; padding:11px 14px; border-radius:9px; border:1px solid var(--border); '
+        'background:var(--surface); color:var(--text); font-size:14px; font-family:inherit;">'
+        '<select id="art-type" aria-label="Filter by artifact type" '
+        'style="padding:11px 14px; border-radius:9px; border:1px solid var(--border); background:var(--surface); '
+        f'color:var(--text); font-size:13px; font-family:inherit; cursor:pointer;">{art_type_opts}</select>'
+        "</div>"
+        '<div id="art-count" style="font-size:12.5px; color:var(--muted); margin-bottom:10px;"></div>'
     )
     art_card = _card(
-        _title("Artifact Index") + '<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse;">'
-        f"<thead><tr>{art_head}</tr></thead><tbody>{art_rows}</tbody></table></div>",
+        _title("Artifact Index")
+        + (art_toolbar if artifacts else "")
+        + '<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse;">'
+        f'<thead><tr>{art_head}</tr></thead><tbody id="art-tbody">{art_rows}</tbody></table></div>'
+        '<p id="art-empty" style="display:none; padding:20px 4px; font-size:13px; color:var(--faint);">'
+        "No artifacts match your search.</p>",
         pad=22,
     )
 
@@ -1767,7 +1797,38 @@ def render_share(report_data: dict[str, Any]) -> str:
         + stake_row
         + art_card
     )
-    return _document(report_data, "share", "Share & Export", main)
+    return _document(report_data, "share", "Share & Export", main, scripts=_SHARE_JS)
+
+
+_SHARE_JS = r"""
+function setupPage(){
+  var tbody=document.getElementById('art-tbody');
+  var search=document.getElementById('art-search');
+  var typeSel=document.getElementById('art-type');
+  var count=document.getElementById('art-count');
+  var empty=document.getElementById('art-empty');
+  if(!tbody||!search) return;
+  var rows=[].slice.call(tbody.querySelectorAll('[data-artifact-row]'));
+  var total=rows.length;
+  function apply(){
+    var q=(search.value||'').trim().toLowerCase();
+    var t=typeSel?typeSel.value:'';
+    var shown=0;
+    rows.forEach(function(r){
+      var okText=!q||(r.getAttribute('data-search')||'').indexOf(q)!==-1;
+      var okType=!t||r.getAttribute('data-type')===t;
+      var vis=okText&&okType;
+      r.style.display=vis?'':'none';
+      if(vis)shown++;
+    });
+    if(count)count.textContent=shown+' of '+total+' artifact'+(total===1?'':'s');
+    if(empty)empty.style.display=shown?'none':'block';
+  }
+  search.addEventListener('input',apply);
+  if(typeSel)typeSel.addEventListener('change',apply);
+  apply();
+}
+"""
 
 
 def render_print_summary(report_data: dict[str, Any]) -> str:
