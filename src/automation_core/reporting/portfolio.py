@@ -6,9 +6,10 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from shutil import move
+from shutil import copytree, move
 from typing import Any
 
+from automation_core.reporting import portfolio_render
 from automation_core.reporting.design_system import report_design_styles
 from automation_core.reporting.models import to_jsonable
 
@@ -90,11 +91,60 @@ def generate_report_portfolio(output_dir: str | Path, *, current_report_dir: str
     portfolio_data = build_portfolio_data(reports, output_path, current_report_dir=current_report_dir)
 
     (output_path / PORTFOLIO_DATA_FILE).write_text(json.dumps(to_jsonable(portfolio_data), indent=2), encoding="utf-8")
-    (output_path / "reports.html").write_text(_render_reports_page(portfolio_data), encoding="utf-8")
-    (output_path / "compare.html").write_text(_render_compare_page(portfolio_data), encoding="utf-8")
+    (output_path / "reports.html").write_text(portfolio_render.render_reports(portfolio_data), encoding="utf-8")
+    (output_path / "compare.html").write_text(portfolio_render.render_compare(portfolio_data), encoding="utf-8")
     index_path = output_path / "index.html"
-    index_path.write_text(_render_dashboard_page(portfolio_data), encoding="utf-8")
+    index_path.write_text(portfolio_render.render_dashboard(portfolio_data), encoding="utf-8")
     return index_path
+
+
+def combine_report_portfolios(
+    sources: list[str | Path],
+    output_dir: str | Path,
+    *,
+    current_report_dir: str | Path | None = None,
+) -> Path:
+    """Aggregate retained runs from several framework report trees into one
+    combined cross-platform (web + mobile + api) portfolio.
+
+    Each source is a framework report root containing a ``runs/`` directory.
+    Every retained run is copied into ``output_dir/runs/`` (deduplicated by
+    ``run_id`` so re-running is idempotent and never deletes prior runs), then
+    the combined portfolio dashboard, reports gallery and compare pages are
+    rebuilt over the union. Because each run carries its own per-platform
+    breakdown, the combined dashboard shows real web/mobile/api trends,
+    coverage and history side by side.
+    """
+
+    output_path = Path(output_dir)
+    combined_runs = output_path / RUNS_DIR
+    combined_runs.mkdir(parents=True, exist_ok=True)
+
+    existing_ids: set[str] = set()
+    for report_data_path in combined_runs.glob("*/report-data.json"):
+        data = _read_json(report_data_path)
+        run_id = str(_summary_from_report_data(data or {}).get("run_id") or "")
+        if run_id:
+            existing_ids.add(run_id)
+
+    for source in sources:
+        source_runs = Path(source) / RUNS_DIR
+        if not source_runs.exists():
+            continue
+        for report_data_path in sorted(source_runs.glob("*/report-data.json")):
+            data = _read_json(report_data_path)
+            if not isinstance(data, dict):
+                continue
+            run_id = str(_summary_from_report_data(data).get("run_id") or "")
+            if run_id and run_id in existing_ids:
+                continue
+            run_dir = report_data_path.parent
+            dest = _unique_destination(combined_runs, run_dir.name)
+            copytree(run_dir, dest)
+            if run_id:
+                existing_ids.add(run_id)
+
+    return generate_report_portfolio(output_path, current_report_dir=current_report_dir)
 
 
 def collect_report_runs(output_dir: str | Path) -> list[dict[str, Any]]:
@@ -157,6 +207,15 @@ def _report_entry(output_path: Path, run_dir: Path, report_data: dict[str, Any])
         report_data.get("resource_efficiency", {}) if isinstance(report_data.get("resource_efficiency"), dict) else {}
     )
     health = report_data.get("run", {}).get("health", {}) if isinstance(report_data.get("run"), dict) else {}
+    platforms = report_data.get("platforms", {}) if isinstance(report_data.get("platforms"), dict) else {}
+    if not platforms and isinstance(report_data.get("test_index"), list):
+        from automation_core.reporting.platforms import platform_breakdown
+
+        hint = f"{summary.get('framework', '')} {summary.get('project_name', '')}".strip()
+        platforms = dict(platform_breakdown(report_data["test_index"], framework_hint=hint))
+    gate = (
+        report_data.get("default_gate_status", {}) if isinstance(report_data.get("default_gate_status"), dict) else {}
+    )
     failed_total = _blocking_failure_count(summary)
     run_dir_href = os.path.relpath(run_dir, output_path)
     generated_at = str(summary.get("latest_run") or "")
@@ -170,7 +229,7 @@ def _report_entry(output_path: Path, run_dir: Path, report_data: dict[str, Any])
         "run_dir": run_dir_href,
         "entry_href": f"{run_dir_href}/index.html",
         "executive_href": f"{run_dir_href}/executive.html",
-        "compare_href": f"{run_dir_href}/compare.html",
+        "compare_href": "compare.html",
         "tests_href": f"{run_dir_href}/explore.html",
         "share_href": f"{run_dir_href}/share.html",
         "total": int(summary.get("total", 0) or 0),
@@ -193,6 +252,8 @@ def _report_entry(output_path: Path, run_dir: Path, report_data: dict[str, Any])
         "quality_configured": bool(quality.get("configured")),
         "quality_message": quality.get("message", ""),
         "quality_score": quality_score.get("score"),
+        "health_score": report_data.get("health_score"),
+        "adjusted_pass_rate": report_data.get("adjusted_pass_rate"),
         "quality_grade": quality_score.get("grade", "n/a"),
         "quality_score_status": quality_score.get("status", "unknown"),
         "risk_level": risk_signal.get("level", "low"),
@@ -220,7 +281,12 @@ def _report_entry(output_path: Path, run_dir: Path, report_data: dict[str, Any])
         "failed_delta": health.get("failed_delta"),
         "flaky_delta": health.get("flaky_delta"),
         "duration_delta_ms": health.get("duration_delta_ms"),
+        "platforms": platforms,
+        "platform_names": [name.capitalize() for name in platforms],
     }
+    gate_passed = str(gate.get("status", "")).lower() == "passed"
+    entry["readiness"] = "ready" if gate_passed else "blocked"
+    entry["readiness_label"] = "Ready" if gate_passed else "Blocked"
     entry["search_text"] = _search_text(entry)
     return entry
 
@@ -943,6 +1009,17 @@ def _file_timestamp(path: Path) -> str:
 
 
 def _unique_child_dir(parent: Path, folder_name: str) -> Path:
+    candidate = parent / folder_name
+    suffix = 2
+    while candidate.exists():
+        candidate = parent / f"{folder_name}-{suffix}"
+        suffix += 1
+    return candidate
+
+
+def _unique_destination(parent: Path, folder_name: str) -> Path:
+    """A non-existing child path (does not create it) for copytree targets."""
+
     candidate = parent / folder_name
     suffix = 2
     while candidate.exists():

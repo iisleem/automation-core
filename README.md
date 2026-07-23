@@ -39,6 +39,18 @@ pytest
 
 ## Version Notes
 
+`0.12.0` rebuilds the static report visual system to a shared sidebar shell with portfolio and
+per-run navigation modes, light/dark/system themes, and a platform-centric (web/mobile/api) model.
+It adds neutral platform classification and per-platform trend/coverage/history, quarantine-adjusted
+release gates (minimum adjusted pass rate, zero new unresolved failures, duration budget), a health
+score (60% adjusted pass rate + 40% stability), design-faithful portfolio dashboard/reports/compare
+pages, and per-run executive, overview, quality gates, tests explore, timeline, flaky, matrix,
+history, share, and test-detail pages. Long identifiers, selectors, and paths are contained with a
+monospace face plus wrap/ellipsis, and every list/table/search has an honest empty state. It also
+adds `combine_report_portfolios(...)`, which aggregates retained runs from several framework report
+trees into one combined web+mobile+api portfolio (deduplicated by run id, never deleting prior runs),
+and fills the sidebar column full-height so no empty gutter shows on tall pages.
+
 `0.11.5` improves retained-run report cards so long run identifiers, quality scores, and risk
 badges remain readable across desktop and narrow viewports.
 
@@ -208,6 +220,48 @@ default gate status, retry-recovered stability, mean recovery time, and run comp
 data. Use `ReportInsightConfig(...)` with `generate_reporting_product(...)`, `build_report_data(...)`, or
 `finalize_allure_reporting(...)` to tune slow-test thresholds, risk thresholds, default informational gates, quality
 score weights, stability window, or worker-count metadata keys.
+
+Set `expected_features=[...]` on the insight config to declare the feature/domain areas expected to have automated
+coverage. Any listed feature with zero tests in a run is flagged as a coverage gap on the executive coverage map;
+with no list configured, only the features actually present are shown.
+
+### Platform model
+
+The report groups tests, trends, coverage, history, and matrix by platform type (`web`, `mobile`, `api`) rather than
+by framework. Frameworks set `metadata["platform_type"]` through their adapters; otherwise `classify_platform(...)`
+derives it from neutral signals (browser → web, device/context → mobile, api profile/status code → api). Cross-run
+comparisons stay per-platform.
+
+### Combined cross-framework portfolio
+
+```python
+from automation_core.reporting import combine_report_portfolios
+
+combine_report_portfolios(
+    [
+        "web-automation-framework/reports/automation-report",
+        "mobile-automation-framework/reports/automation-report",
+        "api-automation-framework/reports/automation-report",
+    ],
+    "reports/combined-portfolio",
+)
+```
+
+`combine_report_portfolios(sources, output_dir)` copies every retained run from each framework report tree into one
+combined portfolio (deduplicated by run id, idempotent, never deleting prior runs) and rebuilds the dashboard, gallery,
+and compare pages so web/mobile/api trends, coverage, and history render side by side.
+
+### Reskinning retained runs
+
+```python
+from automation_core.reporting import reskin_reports
+
+reskin_reports("reports/automation-report")
+```
+
+`reskin_reports(report_root)` re-renders every retained run's HTML from its stored `report-data.json` with the current
+visual system, backfilling platform classification and a cumulative per-platform history for older runs. Use it after
+upgrading `automation-core` so previously saved runs adopt the new design without re-running the tests.
 
 Generated reports are safe-sharing enabled by default. Values under sensitive keys or names such as `token`,
 `secret`, `password`, `authorization`, `cookie`, `api_key`, `bearer`, and `session` are replaced with `[redacted]`

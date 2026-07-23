@@ -16,8 +16,8 @@ def report_design_styles() -> str:
   --text: oklch(23% 0.02 250);
   --muted: oklch(46% 0.02 250);
   --faint: oklch(62% 0.014 250);
-  --accent: oklch(52% 0.13 220);
-  --accentSoft: oklch(93% 0.035 220);
+  --accent: #2563eb;
+  --accentSoft: #dbeafe;
   --secondary: oklch(58% 0.15 75);
   --secondarySoft: oklch(94% 0.045 75);
   --chrome: oklch(99% 0.003 240);
@@ -33,7 +33,7 @@ def report_design_styles() -> str:
   --skipSoft: oklch(94% 0.01 250);
   --flaky: oklch(58% 0.15 75);
   --flakySoft: oklch(94% 0.045 75);
-  --link: oklch(50% 0.15 235);
+  --link: #2563eb;
   --shadow: 0 1px 2px rgba(15,23,42,0.04), 0 6px 20px -14px rgba(15,23,42,0.16);
   --heroShadow: 0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.14);
   --radius-card: 16px;
@@ -72,8 +72,8 @@ def report_design_styles() -> str:
     --text: oklch(93% 0.006 240);
     --muted: oklch(72% 0.015 245);
     --faint: oklch(58% 0.015 245);
-    --accent: oklch(75% 0.12 210);
-    --accentSoft: oklch(32% 0.06 210);
+    --accent: #60a5fa;
+    --accentSoft: #1e3a5f;
     --secondary: oklch(75% 0.14 80);
     --secondarySoft: oklch(32% 0.06 80);
     --chrome: oklch(15% 0.015 255);
@@ -87,7 +87,7 @@ def report_design_styles() -> str:
     --skipSoft: oklch(31% 0.012 250);
     --flaky: oklch(75% 0.14 80);
     --flakySoft: oklch(32% 0.06 80);
-    --link: oklch(75% 0.12 235);
+    --link: #7cb0fb;
     --shadow: 0 1px 2px rgba(0,0,0,0.22), 0 10px 28px -16px rgba(0,0,0,0.62);
     --heroShadow: 0 1px 2px rgba(0,0,0,0.24), 0 12px 30px -14px rgba(0,0,0,0.68);
   }
@@ -106,8 +106,8 @@ def report_design_styles() -> str:
   --text: oklch(93% 0.006 240);
   --muted: oklch(72% 0.015 245);
   --faint: oklch(58% 0.015 245);
-  --accent: oklch(75% 0.12 210);
-  --accentSoft: oklch(32% 0.06 210);
+  --accent: #60a5fa;
+  --accentSoft: #1e3a5f;
   --secondary: oklch(75% 0.14 80);
   --secondarySoft: oklch(32% 0.06 80);
   --chrome: oklch(15% 0.015 255);
@@ -121,7 +121,7 @@ def report_design_styles() -> str:
   --skipSoft: oklch(31% 0.012 250);
   --flaky: oklch(75% 0.14 80);
   --flakySoft: oklch(32% 0.06 80);
-  --link: oklch(75% 0.12 235);
+  --link: #7cb0fb;
   --shadow: 0 1px 2px rgba(0,0,0,0.22), 0 10px 28px -16px rgba(0,0,0,0.62);
   --heroShadow: 0 1px 2px rgba(0,0,0,0.24), 0 12px 30px -14px rgba(0,0,0,0.68);
 }
@@ -220,6 +220,49 @@ a {
 
 a:hover {
   text-decoration: underline;
+}
+
+details.artifact {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+details.artifact > summary {
+  cursor: pointer;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  list-style: none;
+  user-select: none;
+}
+
+details.artifact > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.artifact > summary::after {
+  content: "\\25B8";
+  color: var(--faint);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+details.artifact[open] > summary::after {
+  transform: rotate(90deg);
+}
+
+details.artifact > summary:hover {
+  background: var(--surfaceAlt);
+}
+
+details.artifact > div {
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surfaceAlt);
 }
 
 code,
@@ -1431,37 +1474,6 @@ svg {
 img.preview {
   border: 1px solid var(--border);
   border-radius: var(--radius-inner);
-}
-
-@media (min-width: 901px) {
-  body {
-    padding-left: var(--sidebar-width);
-  }
-
-  .nav-shell {
-    position: fixed;
-    inset: 0 auto 0 0;
-    width: var(--sidebar-width);
-    display: flex;
-    flex-direction: column;
-    padding: 20px 12px;
-    overflow-y: auto;
-    background: var(--chrome);
-    border-right: 1px solid var(--chromeBorder);
-  }
-
-  .app-nav {
-    display: flex;
-    min-height: 100%;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .theme-panel {
-    margin-top: auto;
-    padding: 16px 8px 0;
-    border-top: 1px solid var(--chromeBorder);
-  }
 }
 
 @media (max-width: 1100px) {

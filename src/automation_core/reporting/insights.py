@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from automation_core.reporting.models import RunReport
-from automation_core.reporting.quality import QualityGateConfig, evaluate_quality_gates
+from automation_core.reporting.quality import QualityGateConfig
 from automation_core.reporting.status import PASSED_STATUS, is_blocking_failure_status, normalized_status
 
 
@@ -38,12 +38,17 @@ class ReportInsightConfig:
     slow_test_threshold_ms: float = 30_000
     stability_history_window: int = 10
     default_min_pass_rate: float = 80.0
+    default_duration_budget_ms: float = 60_000.0
     default_max_failed_broken: int = 0
     default_max_flaky: int = 2
     default_max_skipped: int = 20
     default_max_test_retries: int = 3
     default_max_action_retries: int = 5
     worker_count_metadata_keys: tuple[str, ...] = ("worker_count", "workers", "parallel_workers")
+    # Feature/domain names expected to have automated coverage. Any listed
+    # feature with zero tests in a run is flagged as a coverage gap. Empty means
+    # only the features actually present are shown (no gap detection).
+    expected_features: tuple[str, ...] = ()
 
     @classmethod
     def from_value(cls, value: ReportInsightConfig | dict[str, Any] | None) -> ReportInsightConfig:
@@ -60,6 +65,9 @@ class ReportInsightConfig:
             slow_test_threshold_ms=float(value.get("slow_test_threshold_ms", defaults.slow_test_threshold_ms)),
             stability_history_window=int(value.get("stability_history_window", defaults.stability_history_window)),
             default_min_pass_rate=float(value.get("default_min_pass_rate", defaults.default_min_pass_rate)),
+            default_duration_budget_ms=float(
+                value.get("default_duration_budget_ms", defaults.default_duration_budget_ms)
+            ),
             default_max_failed_broken=int(value.get("default_max_failed_broken", defaults.default_max_failed_broken)),
             default_max_flaky=int(value.get("default_max_flaky", defaults.default_max_flaky)),
             default_max_skipped=int(value.get("default_max_skipped", defaults.default_max_skipped)),
@@ -70,6 +78,7 @@ class ReportInsightConfig:
             worker_count_metadata_keys=tuple(
                 value.get("worker_count_metadata_keys", defaults.worker_count_metadata_keys)
             ),
+            expected_features=tuple(value.get("expected_features", defaults.expected_features)),
         )
 
     def default_gate_config(self) -> QualityGateConfig:
@@ -99,12 +108,16 @@ def build_enterprise_insights(
 ) -> dict[str, Any]:
     active_config = ReportInsightConfig.from_value(config)
     quality_score = _quality_score(summary, test_index, signals, active_config)
-    default_gates = evaluate_quality_gates(report, active_config.default_gate_config()).to_dict()
     risk_signal = _risk_signal(summary, signals, failure_transitions, test_index, active_config)
     stability = _stability(test_index, history_entries, active_config)
     recovery = _recovery(history_entries, active_config)
+    adjusted_pass_rate = _adjusted_pass_rate(test_index)
+    default_gates = _design_gate_status(summary, test_index, failure_transitions, adjusted_pass_rate, active_config)
+    health_score = _health_score(adjusted_pass_rate, stability)
     return {
         "quality_score": quality_score,
+        "adjusted_pass_rate": adjusted_pass_rate,
+        "health_score": health_score,
         "risk_signal": risk_signal,
         "default_gate_status": {
             **default_gates,
@@ -132,6 +145,112 @@ def build_enterprise_insights(
         },
         "config": active_config.to_dict(),
     }
+
+
+def _is_quarantined(item: dict[str, Any]) -> bool:
+    metadata = item.get("metadata") or {}
+    return bool(metadata.get("quarantined") or metadata.get("known_issue") or item.get("quarantined"))
+
+
+def _adjusted_pass_rate(test_index: list[dict[str, Any]]) -> float:
+    """Pass rate excluding quarantined tests from the denominator.
+
+    ``adjusted pass rate = passed(non-quarantined) / total(non-quarantined)``.
+    A run with only quarantined tests (or no tests) reports 100 so it never
+    blocks purely on chronically-excluded work.
+    """
+
+    considered = [item for item in test_index if not _is_quarantined(item)]
+    if not considered:
+        return 100.0
+    passed = sum(1 for item in considered if str(item.get("status", "")).lower() in {"passed", "pass"})
+    return round(passed / len(considered) * 100, 2)
+
+
+def _new_unresolved_failures(
+    test_index: list[dict[str, Any]], failure_transitions: dict[str, Any]
+) -> list[dict[str, Any]]:
+    quarantined = {item.get("test_id") for item in test_index if _is_quarantined(item)}
+    known = {item.get("test_id") for item in test_index if (item.get("metadata") or {}).get("known_issue")}
+    excluded = quarantined | known
+    return [
+        failure
+        for failure in failure_transitions.get("new_failures", []) or []
+        if failure.get("test_id") not in excluded and not failure.get("known_issue")
+    ]
+
+
+def _design_gate_status(
+    summary: dict[str, Any],
+    test_index: list[dict[str, Any]],
+    failure_transitions: dict[str, Any],
+    adjusted_pass_rate: float,
+    config: ReportInsightConfig,
+) -> dict[str, Any]:
+    """The three default release gates from the design system.
+
+    1. Minimum adjusted pass rate (quarantined excluded).
+    2. Zero new unresolved failures vs the previous run (known/quarantined excluded).
+    3. Duration budget.
+
+    Thresholds are configurable via :class:`ReportInsightConfig`.
+    """
+
+    duration_ms = float(summary.get("duration_ms", 0) or 0)
+    new_unresolved = len(_new_unresolved_failures(test_index, failure_transitions))
+
+    def result(name: str, metric: str, expected: str, actual: Any, ok: bool) -> dict[str, Any]:
+        return {
+            "name": name,
+            "metric": metric,
+            "expected": expected,
+            "actual": actual,
+            "status": "passed" if ok else "failed",
+            "severity": "failed",
+            "message": "",
+            "category": "",
+        }
+
+    results = [
+        result(
+            "Minimum Pass Rate (adjusted)",
+            "adjusted_pass_rate",
+            f">= {config.default_min_pass_rate:g}%",
+            f"{adjusted_pass_rate:g}%",
+            adjusted_pass_rate >= config.default_min_pass_rate,
+        ),
+        result(
+            "Zero New Unresolved Failures",
+            "new_unresolved_failures",
+            "0",
+            str(new_unresolved),
+            new_unresolved == 0,
+        ),
+        result(
+            "Duration Budget",
+            "duration",
+            f"<= {config.default_duration_budget_ms / 1000:g}s",
+            f"{duration_ms / 1000:g}s",
+            duration_ms <= config.default_duration_budget_ms,
+        ),
+    ]
+    passed = all(item["status"] == "passed" for item in results)
+    return {
+        "status": "passed" if passed else "failed",
+        "configured": True,
+        "results": results,
+        "adjusted_pass_rate": adjusted_pass_rate,
+        "new_unresolved_failures": new_unresolved,
+        "quarantined_count": sum(1 for item in test_index if _is_quarantined(item)),
+    }
+
+
+def _health_score(adjusted_pass_rate: float, stability: dict[str, Any]) -> int:
+    """Design health score: 60% adjusted pass rate + 40% average stability."""
+
+    stability_score = stability.get("score")
+    avg_stability = float(stability_score) if isinstance(stability_score, (int, float)) else adjusted_pass_rate
+    return int(round(adjusted_pass_rate * 0.6 + avg_stability * 0.4))
 
 
 def _quality_score(

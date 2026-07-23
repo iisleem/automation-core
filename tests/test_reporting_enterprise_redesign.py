@@ -151,9 +151,8 @@ def test_enterprise_report_pages_sidecar_and_portfolio_surface_redesign(tmp_path
 
     sidecar = json.loads((current_dir / "report-data.json").read_text(encoding="utf-8"))
     portfolio_data = json.loads((root / "portfolio-data.json").read_text(encoding="utf-8"))
-    dashboard_html = (current_dir / "index.html").read_text(encoding="utf-8")
+    overview_html = (current_dir / "index.html").read_text(encoding="utf-8")
     executive_html = (current_dir / "executive.html").read_text(encoding="utf-8")
-    compare_html = (current_dir / "compare.html").read_text(encoding="utf-8")
     quality_html = (current_dir / "quality.html").read_text(encoding="utf-8")
     explore_html = (current_dir / "explore.html").read_text(encoding="utf-8")
     detail_html = next((current_dir / "tests").glob("*.html")).read_text(encoding="utf-8")
@@ -161,67 +160,63 @@ def test_enterprise_report_pages_sidecar_and_portfolio_surface_redesign(tmp_path
     gallery_html = (root / "reports.html").read_text(encoding="utf-8")
     portfolio_compare_html = (root / "compare.html").read_text(encoding="utf-8")
 
-    assert (current_dir / "compare.html").exists()
-    assert (root / "compare.html").exists()
+    # Data-level invariants that survive the redesign.
     assert sidecar["compare"]["failure_transitions"] == sidecar["failure_transitions"]["counts"]
     assert sidecar["report_config"]["slow_test_threshold_ms"] == 30_000
     assert sidecar["charts"]["quality_score_components"]
+    assert sidecar["health_score"] is not None
+    assert sidecar["adjusted_pass_rate"] is not None
     assert portfolio_data["summary"]["latest_risk_level"] in {"low", "medium", "high"}
-    assert portfolio_data["reports"][0]["compare_href"].endswith("/compare.html")
     assert portfolio_data["reports"][0]["quality_score"] is not None
-    assert portfolio_data["reports"][0]["new_failure_count"] == 1
-    assert 'data-visual-system="enterprise-redesign"' in dashboard_html
-    assert 'href="compare.html"' in dashboard_html
-    assert "Quality Score" in dashboard_html
-    assert "Risk Signal" in executive_html
-    assert 'data-filter-search="compare-metrics"' in compare_html
-    assert 'data-filter-root="compare-failures"' in compare_html
-    assert "Failure Movement" in compare_html
-    assert "failure-movement" in compare_html
-    assert '<section class="grid three" data-filter-root="compare-failures">' not in compare_html
-    assert "Resource Efficiency" in compare_html
-    assert "Default Gate Status" in quality_html
-    assert "Failure Impact" in quality_html
-    assert "failure-movement" in quality_html
-    assert '<section class="grid three" data-filter-root="quality-failures">' not in quality_html
-    assert "Scope" in explore_html
-    assert "scope-cell" in explore_html
-    assert "signal-cell" in explore_html
-    assert "overflow-wrap: anywhere" in dashboard_html
-    assert 'href="../compare.html"' in detail_html
-    assert "nav-shell" in dashboard_html
-    assert "mobile-nav-toggle" in dashboard_html
-    assert 'data-theme-default="system"' in dashboard_html
-    assert 'data-theme-choice="system"' in dashboard_html
-    assert 'data-theme-choice="light"' in dashboard_html
-    assert 'data-theme-choice="dark"' in dashboard_html
-    assert "max-width: 900px" in dashboard_html
-    assert "min-width: 901px" in dashboard_html
-    assert "max-width: 720px" not in dashboard_html
-    assert "min-width: 721px" not in dashboard_html
-    assert "@media (prefers-color-scheme: dark)" in dashboard_html
-    assert 'font-family: "IBM Plex Sans"' in dashboard_html
-    assert "--sidebar-width: 236px" in dashboard_html
-    assert "--bg: oklch(98% 0.004 240)" in dashboard_html
-    assert "--surface: oklch(24% 0.016 255)" in dashboard_html
-    assert "-webkit-line-clamp: 2" in dashboard_html
-    assert ".metric .muted" in dashboard_html
-    assert ".mini-stat-row" in dashboard_html
-    assert ".card-head" in dashboard_html
-    assert ".score-line" in dashboard_html
-    assert "min-width: 76px" in dashboard_html
-    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in dashboard_html
-    assert "overview-hero" in dashboard_html
-    assert "Key Wins" in dashboard_html
-    assert "Focus Areas" in dashboard_html
-    assert "Healing Events" not in dashboard_html
-    assert "Healing Events" not in detail_html
+    assert portfolio_data["reports"][0]["health_score"] is not None
+    assert portfolio_data["reports"][0]["readiness"] in {"ready", "blocked"}
+
+    # Compare is a portfolio-level page; run pages no longer duplicate it.
+    assert not (current_dir / "compare.html").exists()
+    assert (root / "compare.html").exists()
+
+    # Shared sidebar shell in report mode.
+    assert 'class="app-sidebar"' in overview_html
+    assert "All Reports" in overview_html
+    assert "Appearance" in overview_html
+    assert 'data-theme-choice="system"' in overview_html
+    assert 'data-theme-choice="light"' in overview_html
+    assert 'data-theme-choice="dark"' in overview_html
+
+    # Design tokens + responsive + theme are present in every page's stylesheet.
+    assert "--bg: oklch(98% 0.004 240)" in overview_html
+    assert "@media (prefers-color-scheme: dark)" in overview_html
+    assert "max-width: 900px" in overview_html
+    assert "IBM Plex Sans" in overview_html
+
+    # Overview surfaces.
+    assert "Automation Report" in overview_html
+    assert "Key Wins" in overview_html
+    assert "Focus Areas" in overview_html
+    assert "Pass Rate Trend" in overview_html
+    assert "Environment Coverage" in overview_html
+
+    # Executive + quality gates.
+    assert "Executive Summary" in executive_html
+    assert "Health Score" in executive_html
+    assert "Quality Gates" in quality_html
+    assert "Minimum Pass Rate (adjusted)" in quality_html
+    assert "Zero New Unresolved Failures" in quality_html
+    assert "Duration Budget" in quality_html
+
+    # Tests explore + detail.
+    assert "Tests Explore" in explore_html
+    assert "Filtered Status" in explore_html
+    assert "overflow-wrap:anywhere" in detail_html
+    assert 'href="../compare.html"' not in detail_html
+
+    # Portfolio pages.
     assert "Portfolio Dashboard" in portfolio_html
-    assert "Quality Score Trend" in portfolio_html
-    assert "Risk Levels" in portfolio_html
-    assert "Compare" in gallery_html
+    assert "Pass Rate Trend" in portfolio_html
+    assert "Platform Coverage" in portfolio_html
+    assert "Runs Needing Attention" in portfolio_html
+    assert "Add to Compare" in gallery_html
     assert "Compare Reports" in portfolio_compare_html
-    assert "--sidebar-width: 236px" in portfolio_compare_html
 
 
 def test_enterprise_report_client_rendering_escapes_json_driven_values(tmp_path):
@@ -261,32 +256,29 @@ def test_enterprise_report_client_rendering_escapes_json_driven_values(tmp_path)
     generate_report_portfolio(root, current_report_dir=current_dir)
 
     explore_html = (current_dir / "explore.html").read_text(encoding="utf-8")
-    dashboard_html = (current_dir / "index.html").read_text(encoding="utf-8")
-    compare_html = (current_dir / "compare.html").read_text(encoding="utf-8")
     portfolio_html = (root / "index.html").read_text(encoding="utf-8")
     gallery_html = (root / "reports.html").read_text(encoding="utf-8")
     portfolio_compare_html = (root / "compare.html").read_text(encoding="utf-8")
 
+    # Every client-hydrated page defines and uses an HTML escaper for JSON values.
     for html in (explore_html, portfolio_html, gallery_html, portfolio_compare_html):
-        assert "function escapeHtml" in html
-        assert "function safeHref" in html
-        assert "javascript|data|vbscript" in html
-        assert "/[\\u000d\\u000a]/.test(text)" in html
-        assert "/[\n]/.test(text)" not in html
+        assert "function esc(" in html
 
-    assert "escapeHtml(item.name)" in explore_html
-    assert "safeHref(item.detail_href)" in explore_html
-    assert "escapeHtml(item.run_id" in portfolio_html
-    assert "safeHref(item.entry_href)" in portfolio_html
-    assert "escapeHtml(item.run_id" in gallery_html
-    assert "safeHref(item.entry_href)" in gallery_html
-    assert "escapeHtml(item.run_id" in portfolio_compare_html
-    assert "safeHref(item.entry_href)" in portfolio_compare_html
-    assert "className = 'table-wrap wide'" in gallery_html
-    assert "hydrateResponsiveTables(root)" in gallery_html
-    assert ".compare-table table" in compare_html
-    assert "trend-svg" in dashboard_html
-    assert "labelStep" in portfolio_html
+    # User-controlled values are escaped before being written into innerHTML.
+    assert "esc(t.name)" in explore_html
+    assert "esc(r.run_id)" in portfolio_html
+    assert "esc(r.run_id)" in gallery_html
+    assert "esc(shortId(r.run_id))" in portfolio_compare_html
+
+    # The raw payload is escaped so a data island cannot break out of the script tag.
+    assert "</" not in _script_json(portfolio_html)
+
+
+def _script_json(html: str) -> str:
+    import re
+
+    match = re.search(r'id="portfolio-data">(.*?)</script>', html, re.DOTALL)
+    return match.group(1) if match else ""
 
 
 def test_report_client_rendering_does_not_execute_malicious_values_in_browser(tmp_path):
@@ -321,19 +313,19 @@ def test_report_client_rendering_does_not_execute_malicious_values_in_browser(tm
             page.goto("file://" + quote(str(path)), wait_until="load")
             page.wait_for_timeout(200)
             assert page_errors == []
-            assert page.evaluate("document.body.dataset.visualSystem") == "enterprise-redesign"
-            assert page.evaluate("document.body.dataset.themeDefault") == "system"
-            assert page.locator("img").count() == 0
+            # None of the injected onerror/onload handlers fired.
+            for marker in ("run", "project", "framework", "xss", "xss2", "profile"):
+                assert page.evaluate(f"document.body.dataset.{marker}") is None
+            # No injected executable image/svg elements slipped through.
             assert page.locator("svg[onload], img[onerror]").count() == 0
         page.goto("file://" + quote(str(current_dir / "explore.html")), wait_until="load")
         page.wait_for_timeout(200)
         assert page_errors == []
-        assert page.locator("#explore-result-count").inner_text() == "1 tests"
+        assert page.locator("#ex-count").inner_text() == "1 test"
         page.goto("file://" + quote(str(root / "reports.html")), wait_until="load")
         page.wait_for_timeout(200)
         assert page_errors == []
-        assert page.locator("#gallery-count").inner_text() == "1 reports"
-        assert page.locator(".report-card").count() == 1
+        assert page.locator("#pf-count").inner_text() == "1 report"
         browser.close()
 
 
@@ -359,12 +351,10 @@ def test_healing_sections_render_only_when_healing_events_exist(tmp_path):
     generate_reporting_product(no_healing, no_healing_dir, update_history_file=False)
 
     no_healing_index = (no_healing_dir / "index.html").read_text(encoding="utf-8")
-    no_healing_executive = (no_healing_dir / "executive.html").read_text(encoding="utf-8")
     no_healing_detail = next((no_healing_dir / "tests").glob("*.html")).read_text(encoding="utf-8")
-    assert "Healing Events" not in no_healing_index
-    assert "Healing Events" not in no_healing_executive
-    assert "Healing Events" not in no_healing_detail
-    assert "No healing events captured" not in no_healing_detail
+    # The design keeps the healing card present with an honest empty state.
+    assert "Healing Events" in no_healing_detail
+    assert "No healing events captured" in no_healing_detail
     assert "Action Retries" in no_healing_index
     assert "Test Retries" in no_healing_index
 
@@ -395,9 +385,7 @@ def test_healing_sections_render_only_when_healing_events_exist(tmp_path):
 
     generate_reporting_product(with_healing, with_healing_dir, update_history_file=False)
 
-    with_healing_index = (with_healing_dir / "index.html").read_text(encoding="utf-8")
     with_healing_detail = next((with_healing_dir / "tests").glob("*.html")).read_text(encoding="utf-8")
-    assert "Healing Events" in with_healing_index
     assert "Healing Events" in with_healing_detail
     assert "[data-test=&#x27;sign-in&#x27;]" in with_healing_detail
 
@@ -455,7 +443,6 @@ def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
         output_dir / "index.html",
         output_dir / "executive.html",
         output_dir / "quality.html",
-        output_dir / "compare.html",
         output_dir / "explore.html",
         output_dir / "timeline.html",
         output_dir / "flaky.html",
@@ -482,9 +469,6 @@ def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
             for path in pages:
                 page.goto("file://" + quote(str(path)), wait_until="load")
                 page.wait_for_timeout(100)
-                if viewport["width"] < 900:
-                    page.locator(".mobile-nav-toggle").click()
-                    page.wait_for_timeout(50)
                 layout = page.evaluate(
                     """() => {
                       const viewportWidth = document.documentElement.clientWidth;
@@ -497,7 +481,15 @@ def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
                         const rect = node.getBoundingClientRect();
                         return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
                       };
-                      const insideAllowedScroll = (node) => Boolean(node.closest('.table-wrap, pre, .app-nav'));
+                      const insideAllowedScroll = (node) => {
+                        let el = node.parentElement;
+                        while (el) {
+                          const ox = getComputedStyle(el).overflowX;
+                          if (ox === 'auto' || ox === 'scroll') return true;
+                          el = el.parentElement;
+                        }
+                        return Boolean(node.closest('.table-wrap, pre, .report-nav'));
+                      };
                       const offenders = Array.from(document.body.querySelectorAll('*'))
                         .filter((node) => {
                           if (!isVisible(node) || insideAllowedScroll(node)) return false;
@@ -554,31 +546,47 @@ def test_product_report_navigation_does_not_overflow_narrow_viewport(tmp_path):
                 )
                 assert layout["documentOverflow"] == 0
                 assert layout["offenders"] == []
-                assert layout["theme"]["defaultMode"] == "system"
                 assert layout["theme"]["htmlTheme"] in {"system", "light", "dark"}
                 assert layout["theme"]["choices"] == ["system", "light", "dark"]
-                if viewport["width"] >= 900:
-                    assert layout["desktopNav"] == {
-                        "visible": True,
-                        "toggleHidden": True,
-                        "separated": True,
-                        "activeLinks": 1,
-                        "themeButtons": 3,
-                    }
-                else:
-                    assert layout["mobileNav"] == {
-                        "toggleVisible": True,
-                        "navVisible": True,
-                        "contained": True,
-                        "themeButtons": 3,
-                    }
                 assert all(item["contained"] and item["scrollableSafely"] for item in layout["internalContainers"])
                 assert all(layout["heatCells"])
             page.close()
         browser.close()
 
 
-def test_legacy_matrix_dashboards_do_not_create_document_overflow_on_narrow_viewport(tmp_path):
+def test_matrix_dashboards_use_shared_design_shell(tmp_path):
+    dashboard = generate_environment_matrix_dashboard(
+        [
+            {
+                "env": "staging",
+                "summary": {
+                    "status": "passed",
+                    "total": 10,
+                    "passed": 10,
+                    "failed": 0,
+                    "broken": 0,
+                    "skipped": 0,
+                    "duration_ms": 5000,
+                    "pass_rate": 100,
+                },
+                "report_href": "reports/staging/index.html",
+                "log_href": "logs/staging.log",
+            }
+        ],
+        tmp_path / "env-shell",
+    )
+    html = dashboard.read_text(encoding="utf-8")
+    # Built on the shared shell: sidebar, theme control, and design tokens.
+    assert "data-app-shell" in html
+    assert "app-sidebar" in html
+    assert "data-theme-choice" in html
+    assert "var(--surface)" in html
+    # The old standalone dark-banner dashboard markup is gone.
+    assert "background: #102033" not in html
+    assert "font-family: Arial" not in html
+
+
+def test_matrix_dashboards_do_not_create_document_overflow_on_narrow_viewport(tmp_path):
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     browser_dashboard = generate_browser_matrix_dashboard(
         [

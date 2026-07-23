@@ -18,7 +18,12 @@ SENSITIVE_PATTERN_LABELS = (
     ("bearer", re.compile(r"bearer", re.IGNORECASE)),
     ("session", re.compile(r"session", re.IGNORECASE)),
 )
-NAME_KEYS = {"name", "artifact_name", "file_name", "filename", "title"}
+# Human-readable identifiers (test names, step names, risk/section titles) are
+# authored by engineers and are not secrets, so they are never wholesale
+# redacted just because they contain a word like "session" or "token". Only
+# explicit artifact file names are content-checked; secret *values* embedded in
+# paths, hrefs and free text are still scrubbed by PATH_KEYS / TEXT_SECRET_PATTERN.
+NAME_KEYS = {"artifact_name", "file_name", "filename"}
 PATH_KEYS = {"path", "href", "original_path", "source"}
 ALWAYS_REDACT_KEYS = {"original_path"}
 TEXT_SECRET_PATTERN = re.compile(

@@ -33,8 +33,8 @@ def test_passed_and_skipped_tests_have_neutral_failure_fields(tmp_path):
     assert output_sidecar["charts"]["failure_categories"] == {}
     assert output_sidecar["aggregates"]["filter_options"]["failure_category"] == []
     assert "Unknown failure" not in json.dumps(output_sidecar)
-    assert "((item.failure || {}).title || '-')" in explore_html
-    assert "countBy(filtered, (item) => (item.failure || {}).category, null)" in explore_html
+    assert "(t.failure||{}).title||'—'" in explore_html
+    assert "countBy(out,function(t){return (t.failure||{}).category;})" in explore_html
 
 
 def test_real_failures_keep_smart_default_classification_without_polluting_passed_filters():
@@ -78,18 +78,20 @@ def test_error_status_is_blocking_across_report_semantics(tmp_path):
     )
 
     sidecar = build_report_data(report)
-    failed_gate = next(
-        result for result in sidecar["default_gate_status"]["results"] if result["metric"] == "failed_broken"
+    # An error test drags the adjusted pass rate below the release gate threshold.
+    pass_rate_gate = next(
+        result for result in sidecar["default_gate_status"]["results"] if result["metric"] == "adjusted_pass_rate"
     )
 
+    assert pass_rate_gate["status"] == "failed"
+    assert sidecar["default_gate_status"]["status"] == "failed"
     assert sidecar["run"]["summary"]["status"] == "failed"
     assert sidecar["run"]["summary"]["error"] == 1
     assert sidecar["run"]["summary"]["blocking_failures"] == 1
     assert sidecar["aggregates"]["status_distribution"]["failed_broken"] == 1
     assert sidecar["charts"]["failure_categories"] == {"unknown": 1}
     assert sidecar["risk_signal"]["level"] != "low"
-    assert failed_gate["status"] == "failed"
-    assert failed_gate["actual"] == 1
+    assert pass_rate_gate["actual"] == "50%"
     assert sidecar["matrix"]["domain"]["web"]["error"] == 1
     assert sidecar["matrix"]["domain"]["web"]["failure_categories"] == {"unknown": 1}
     assert sidecar["test_index"][0]["failure"] == EMPTY_FAILURE
@@ -97,10 +99,12 @@ def test_error_status_is_blocking_across_report_semantics(tmp_path):
 
     generate_reporting_product(report, tmp_path / "report")
     output_sidecar = json.loads((tmp_path / "report" / "report-data.json").read_text(encoding="utf-8"))
-    output_failed_gate = next(
-        result for result in output_sidecar["default_gate_status"]["results"] if result["metric"] == "failed_broken"
+    output_pass_rate_gate = next(
+        result
+        for result in output_sidecar["default_gate_status"]["results"]
+        if result["metric"] == "adjusted_pass_rate"
     )
 
     assert output_sidecar["run"]["summary"]["status"] == "failed"
-    assert output_failed_gate["actual"] == 1
-    assert output_failed_gate["status"] == "failed"
+    assert output_pass_rate_gate["status"] == "failed"
+    assert output_sidecar["default_gate_status"]["status"] == "failed"
