@@ -183,7 +183,15 @@ def _hbar_row(label: str, value: Any, maximum: float, color: str, *, mono_right:
     )
 
 
-def _area_svg(series: list[float], color: str, *, w: int = 300, h: int = 110, points: bool = True) -> str:
+def _area_svg(
+    series: list[float],
+    color: str,
+    *,
+    w: int = 300,
+    h: int = 110,
+    points: bool = True,
+    labels: list[str] | None = None,
+) -> str:
     if not series:
         return ""
     pad, inner_w, inner_h = 12, w - 24, h - 16
@@ -196,9 +204,16 @@ def _area_svg(series: list[float], color: str, *, w: int = 300, h: int = 110, po
     area = f"M{xs[0]:.1f},{h - 8:.1f} L" + line.replace(" ", " L") + f" L{xs[-1]:.1f},{h - 8:.1f} Z"
     dots = ""
     if points:
-        dots = "".join(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.5" fill="{color}"/>' for x, y in zip(xs, ys, strict=False)
-        )
+        parts = []
+        for i, (x, y) in enumerate(zip(xs, ys, strict=False)):
+            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.5" fill="{color}"/>')
+            # Each point is one run; hover reveals which run and its pass rate.
+            if labels and i < len(labels):
+                parts.append(
+                    f'<circle cx="{x:.1f}" cy="{y:.1f}" r="11" fill="rgba(0,0,0,0)" '
+                    f'style="cursor:default;pointer-events:all;" data-trend-label="{_e(labels[i])}"/>'
+                )
+        dots = "".join(parts)
     return (
         f'<svg viewBox="0 0 {w} {h}" style="width:100%; height:{h - 14}px;" preserveAspectRatio="none">'
         f'<path d="{area}" fill="{color}" opacity="0.10"/>'
@@ -214,6 +229,9 @@ def _platform_trend_cards(trend_points: list[dict[str, Any]], *, note: str) -> s
         if not runs:
             continue
         series = [float(tp["platforms"][platform].get("pass_rate", 0)) for tp in runs]
+        labels = [
+            f"{tp.get('run_id', '')} · {_fmt_pct(tp['platforms'][platform].get('pass_rate', 0))} pass" for tp in runs
+        ]
         last = series[-1] if series else 0
         color = PLATFORM_COLORS[platform]
         cards.append(
@@ -223,7 +241,7 @@ def _platform_trend_cards(trend_points: list[dict[str, Any]], *, note: str) -> s
             f'<i style="width:9px; height:9px; border-radius:50%; background:{color}; display:inline-block;"></i>'
             f"{platform.capitalize()}</span>"
             f'<strong style="font-family:{MONO}; font-size:18px; color:{color};">{_fmt_pct(last)}</strong></div>'
-            f"{_area_svg(series, color, w=300, h=120)}"
+            f"{_area_svg(series, color, w=300, h=120, labels=labels)}"
             f'<div style="font-size:11.5px; color:var(--faint); margin-top:8px;">{len(runs)} run(s) with '
             f"{platform.capitalize()} tests.</div></div>"
         )
@@ -1443,15 +1461,7 @@ def render_history(report_data: dict[str, Any]) -> str:
         if any((tp.get("platforms") or {}).get(p) for tp in trend_pts)
     )
     trend_cards = "".join(
-        f'<div style="background:var(--surfaceAlt); border-radius:12px; padding:16px;">'
-        f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">'
-        f'<span style="display:inline-flex; align-items:center; gap:8px; font-size:14px; font-weight:600;">'
-        f'<i style="width:9px; height:9px; border-radius:50%; background:{PLATFORM_COLORS[p]};"></i>{p.capitalize()}</span>'
-        f'<strong style="font-family:{MONO}; font-size:18px; color:{PLATFORM_COLORS[p]};">'
-        f"{_fmt_pct(_last_platform_rate(trend_pts, p))}</strong></div>"
-        f"{_area_svg([float((tp.get('platforms') or {}).get(p, {}).get('pass_rate', 0)) for tp in trend_pts if (tp.get('platforms') or {}).get(p)], PLATFORM_COLORS[p], w=300, h=120)}"
-        f'<div style="font-size:11.5px; color:var(--faint); margin-top:8px;">'
-        f"{sum(1 for tp in trend_pts if (tp.get('platforms') or {}).get(p))} run(s) with {p.capitalize()} tests.</div></div>"
+        _history_platform_card(trend_pts, p)
         for p in ("web", "mobile", "api")
         if any((tp.get("platforms") or {}).get(p) for tp in trend_pts)
     )
@@ -1559,6 +1569,25 @@ def render_history(report_data: dict[str, Any]) -> str:
 def _last_platform_rate(trend_pts: list[dict[str, Any]], platform: str) -> float:
     runs = [tp for tp in trend_pts if (tp.get("platforms") or {}).get(platform)]
     return float(runs[-1]["platforms"][platform].get("pass_rate", 0)) if runs else 0.0
+
+
+def _history_platform_card(trend_pts: list[dict[str, Any]], platform: str) -> str:
+    """One per-platform Pass Rate Trend card for the History page."""
+    runs = [tp for tp in trend_pts if (tp.get("platforms") or {}).get(platform)]
+    series = [float(tp["platforms"][platform].get("pass_rate", 0)) for tp in runs]
+    labels = [f"{tp.get('run_id', '')} · {_fmt_pct(tp['platforms'][platform].get('pass_rate', 0))} pass" for tp in runs]
+    colour = PLATFORM_COLORS[platform]
+    return (
+        f'<div style="background:var(--surfaceAlt); border-radius:12px; padding:16px;">'
+        f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">'
+        f'<span style="display:inline-flex; align-items:center; gap:8px; font-size:14px; font-weight:600;">'
+        f'<i style="width:9px; height:9px; border-radius:50%; background:{colour};"></i>{platform.capitalize()}</span>'
+        f'<strong style="font-family:{MONO}; font-size:18px; color:{colour};">'
+        f"{_fmt_pct(_last_platform_rate(trend_pts, platform))}</strong></div>"
+        f"{_area_svg(series, colour, w=300, h=120, labels=labels)}"
+        f'<div style="font-size:11.5px; color:var(--faint); margin-top:8px;">'
+        f"{len(runs)} run(s) with {platform.capitalize()} tests.</div></div>"
+    )
 
 
 # ============================ SHARE ========================================

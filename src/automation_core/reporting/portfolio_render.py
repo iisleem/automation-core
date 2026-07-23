@@ -307,12 +307,19 @@ function renderDashboard(){
     outcomeRow('Ready',ready,maxOut,'var(--pass)')+outcomeRow('Blocked',blocked,maxOut,'var(--fail)');
   // coverage
   renderCoverage(pf);
-  // attention
-  var att=reports.filter(function(r){return r.readiness==='blocked';});
+  // attention: only runs the quarantine-adjusted release gate actually blocks, worst first.
+  // Known/quarantined failures do NOT block release, so a "98% pass" run never lands here —
+  // only genuine release blockers (new unresolved failures, adjusted pass below the gate, or a
+  // failed duration gate) surface, ranked by new failures then total failures.
+  var att=reports.filter(function(r){return r.readiness==='blocked';})
+    .sort(function(a,b){return ((b.new_failure_count||0)-(a.new_failure_count||0))||((b.failed_total||0)-(a.failed_total||0));});
   document.getElementById('pf-attention').innerHTML=att.length?att.map(function(r){
-    return '<div style="padding:12px 0;border-top:1px solid var(--border);"><a href="'+esc(r.entry_href)+'" style="font-family:\'IBM Plex Mono\',monospace;font-size:13.5px;font-weight:600;color:var(--link);text-decoration:none;">'+esc(r.run_id)+'</a>'
-      +'<div style="font-size:12px;color:var(--muted);margin-top:4px;">'+esc(r.generated_display)+' · '+(r.failed_total||0)+' failed · '+(r.flaky||0)+' flaky · '+Math.round(r.pass_rate)+'% pass</div></div>';
-  }).join(''):'<p style="font-size:13px;color:var(--faint);padding:8px 0;">Every retained run is release-ready.</p>';
+    var reason=(r.new_failure_count||0)>0?((r.new_failure_count||0)+' new failure'+((r.new_failure_count||0)===1?'':'s'))
+      :(r.failed_total||0)>0?((r.failed_total||0)+' failing'):'Gate blocked';
+    return '<div style="padding:12px 0;border-top:1px solid var(--border);"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;"><a href="'+esc(r.entry_href)+'" style="font-family:\'IBM Plex Mono\',monospace;font-size:13.5px;font-weight:600;color:var(--link);text-decoration:none;overflow-wrap:anywhere;min-width:0;">'+esc(r.run_id)+'</a>'
+      +'<span style="flex-shrink:0;font-family:\'IBM Plex Mono\',monospace;font-size:11px;font-weight:700;color:var(--fail);background:var(--failSoft);padding:2px 9px;border-radius:100px;">'+esc(reason)+'</span></div>'
+      +'<div style="font-size:12px;color:var(--muted);margin-top:4px;">'+esc(r.generated_display)+' · '+Math.round(r.pass_rate)+'% pass · '+(r.flaky||0)+' flaky</div></div>';
+  }).join(''):'<p style="font-size:13px;color:var(--faint);padding:8px 0;">No runs are blocked from release. Known and quarantined failures do not count.</p>';
 }
 function aggPlatforms(reports){
   var acc={};
@@ -336,7 +343,7 @@ function renderTrend(reports){
     var last=series[series.length-1];
     var col=pfColor(p);
     var sp=areaPath(series,300,120);
-    var pts=(sp.xs||[]).map(function(x,i){return '<circle cx="'+x.toFixed(1)+'" cy="'+sp.ys[i].toFixed(1)+'" r="3.5" fill="'+col+'"><title>'+esc(runs[i].run_id)+': '+Math.round(series[i])+'%</title></circle>';}).join('');
+    var pts=(sp.xs||[]).map(function(x,i){var cx=x.toFixed(1),cy=sp.ys[i].toFixed(1);var href=esc(runs[i].entry_href||'');var label=esc(runs[i].run_id+' · '+Math.round(series[i])+'% pass');return '<circle cx="'+cx+'" cy="'+cy+'" r="3.5" fill="'+col+'"></circle><circle cx="'+cx+'" cy="'+cy+'" r="11" fill="rgba(0,0,0,0)" style="cursor:pointer;pointer-events:all;" data-trend-href="'+href+'" data-trend-label="'+label+'"></circle>';}).join('');
     return '<div style="background:var(--surfaceAlt);border-radius:12px;padding:16px;margin-bottom:14px;">'
       +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
       +'<span style="display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:600;"><i style="width:9px;height:9px;border-radius:50%;background:'+col+';display:inline-block;"></i>'+p.charAt(0).toUpperCase()+p.slice(1)+'</span>'

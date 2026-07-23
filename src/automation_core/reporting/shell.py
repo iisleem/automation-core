@@ -222,6 +222,19 @@ function setupShareLinks(){
     });
   });
 }
+function setupTrendPoints(){
+  // Each trend data point is one run: hover shows its id + pass rate, click opens that run.
+  var tip=document.createElement('div');
+  tip.style.cssText='position:fixed;z-index:200;pointer-events:none;opacity:0;transition:opacity .1s ease;'
+    +'background:var(--text);color:var(--bg);font:600 11.5px/1.4 \\'IBM Plex Mono\\',monospace;'
+    +'padding:6px 9px;border-radius:7px;box-shadow:0 6px 20px -6px rgba(0,0,0,0.4);white-space:nowrap;max-width:70vw;overflow:hidden;text-overflow:ellipsis;';
+  document.body.appendChild(tip);
+  var over=function(t){tip.textContent=t.getAttribute('data-trend-label')||'';tip.style.opacity='1';};
+  document.addEventListener('mouseover',function(e){var t=e.target.closest('[data-trend-label]');if(t)over(t);});
+  document.addEventListener('mousemove',function(e){if(tip.style.opacity==='1'){var x=Math.min(e.clientX+14,window.innerWidth-tip.offsetWidth-8);tip.style.left=x+'px';tip.style.top=Math.max(8,e.clientY-34)+'px';}});
+  document.addEventListener('mouseout',function(e){if(e.target.closest('[data-trend-label]'))tip.style.opacity='0';});
+  document.addEventListener('click',function(e){var t=e.target.closest('[data-trend-href]');if(t){var h=t.getAttribute('data-trend-href');if(h)window.location.href=h;}});
+}
 """
 
 
@@ -274,7 +287,7 @@ min-height:100vh; display:flex; font-family:'IBM Plex Sans',sans-serif;">
 {_shell_script()}
 {extra_scripts}
   document.addEventListener('DOMContentLoaded', function(){{
-    setupTheme(); setupDrawer(); setupShareLinks();
+    setupTheme(); setupDrawer(); setupShareLinks(); setupTrendPoints();
     if (typeof setupPage === 'function') setupPage();
   }});
   </script>
