@@ -194,6 +194,20 @@ def test_artifact_index_has_search_and_type_filter(tmp_path):
     assert "data-type=" in share
 
 
+def test_explore_test_names_wrap_instead_of_truncating(tmp_path):
+    product = tmp_path / "product"
+    generate_reporting_product(_mixed_report(), product, update_history_file=False)
+    explore = (product / "explore.html").read_text(encoding="utf-8")
+
+    # The test-name cell in the Explore table wraps long identifiers rather than
+    # clipping them with an ellipsis, so desktop readers see the full name.
+    name_cell = explore[explore.index("min-width:240px;max-width:520px") :][:600]
+    assert "overflow-wrap:anywhere" in name_cell
+    assert "word-break:break-word" in name_cell
+    assert "text-overflow:ellipsis" not in name_cell
+    assert "white-space:nowrap" not in name_cell
+
+
 def test_expected_features_flag_coverage_gaps(tmp_path):
     generate_reporting_product(
         _mixed_report(),
