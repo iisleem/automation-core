@@ -132,6 +132,20 @@ def test_matrix_uses_design_dimensions():
     assert sidecar["matrix"]["owner"]["web-guild"]["pass_rate"] == 100.0
 
 
+def test_expected_features_flag_coverage_gaps(tmp_path):
+    generate_reporting_product(
+        _mixed_report(),
+        tmp_path / "product",
+        update_history_file=False,
+        insight_config={"expected_features": ["Authentication", "Checkout", "Payments", "Onboarding"]},
+    )
+    executive = (tmp_path / "product" / "executive.html").read_text(encoding="utf-8")
+    # Features with no tests in the run are flagged as gaps.
+    assert "Payments · no coverage" in executive
+    assert "Onboarding · no coverage" in executive
+    assert "Features with zero automated tests are flagged as coverage gaps." in executive
+
+
 def test_long_text_is_contained_not_wrapped_open(tmp_path):
     generate_reporting_product(_mixed_report(), tmp_path / "product", update_history_file=False)
     detail = next(page for page in (tmp_path / "product" / "tests").glob("*.html") if "api1" in page.name)

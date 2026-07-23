@@ -45,6 +45,10 @@ class ReportInsightConfig:
     default_max_test_retries: int = 3
     default_max_action_retries: int = 5
     worker_count_metadata_keys: tuple[str, ...] = ("worker_count", "workers", "parallel_workers")
+    # Feature/domain names expected to have automated coverage. Any listed
+    # feature with zero tests in a run is flagged as a coverage gap. Empty means
+    # only the features actually present are shown (no gap detection).
+    expected_features: tuple[str, ...] = ()
 
     @classmethod
     def from_value(cls, value: ReportInsightConfig | dict[str, Any] | None) -> ReportInsightConfig:
@@ -74,6 +78,7 @@ class ReportInsightConfig:
             worker_count_metadata_keys=tuple(
                 value.get("worker_count_metadata_keys", defaults.worker_count_metadata_keys)
             ),
+            expected_features=tuple(value.get("expected_features", defaults.expected_features)),
         )
 
     def default_gate_config(self) -> QualityGateConfig:

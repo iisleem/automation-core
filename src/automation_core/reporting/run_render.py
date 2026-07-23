@@ -894,15 +894,31 @@ def _coverage_map_card(report_data: dict[str, Any]) -> str:
     for t in report_data.get("test_index", []):
         d = t.get("domain") or "uncategorized"
         domains[d] = domains.get(d, 0) + 1
-    chips = "".join(
+
+    expected = report_data.get("report_config", {}).get("expected_features", []) or []
+    present_lower = {str(name).lower() for name in domains}
+    gaps = [feat for feat in expected if str(feat).lower() not in present_lower]
+
+    covered_chips = "".join(
         f'<span style="display:inline-block; padding:8px 14px; border-radius:100px; background:var(--surfaceAlt); '
         f'font-size:13px; color:var(--text);">{_e(name)} · {count} tests</span>'
         for name, count in sorted(domains.items())
     )
+    gap_chips = "".join(
+        '<span style="display:inline-block; padding:8px 14px; border-radius:100px; '
+        'border:1px dashed var(--fail); background:var(--failSoft); font-size:13px; color:var(--fail);">'
+        f"{_e(feat)} · no coverage</span>"
+        for feat in gaps
+    )
+    caption = (
+        "Features with zero automated tests are flagged as coverage gaps."
+        if expected
+        else "Features with automated tests in this run."
+    )
     return _card(
         _title("Coverage Map")
-        + '<p style="font-size:13px; color:var(--muted); margin:-8px 0 14px;">Features with automated tests in this '
-        "run.</p>" + f'<div style="display:flex; flex-wrap:wrap; gap:10px;">{chips}</div>'
+        + f'<p style="font-size:13px; color:var(--muted); margin:-8px 0 14px;">{caption}</p>'
+        + f'<div style="display:flex; flex-wrap:wrap; gap:10px;">{covered_chips}{gap_chips}</div>'
     )
 
 
