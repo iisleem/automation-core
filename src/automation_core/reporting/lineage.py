@@ -132,6 +132,22 @@ def run_view_from_report_data(report_data: Mapping[str, Any]) -> RunView:
     return run_view(run_id, generated_at, report_data.get("test_index", []) or [])
 
 
+def run_view_from_history_entry(entry: Mapping[str, Any]) -> RunView:
+    """Build a view from a stored history entry (its ``test_statuses``).
+
+    Each status entry carries a precomputed ``fq_id`` (falling back to identity
+    fields) so the id matches what :func:`run_view_from_report` produced.
+    """
+    statuses: dict[str, str] = {}
+    for item in entry.get("test_statuses", []) or []:
+        key = item.get("fq_id") or fq_id(item)
+        if key:
+            statuses[str(key)] = str(item.get("status", "unknown"))
+    run_id = entry.get("run_id", "")
+    generated_at = entry.get("latest_run") or entry.get("generated_at")
+    return RunView(run_id, generated_at, statuses)
+
+
 # --------------------------------------------------------------------------- #
 # Set-similarity primitives.
 # --------------------------------------------------------------------------- #

@@ -13,6 +13,7 @@ from automation_core.reporting.analysis import (
 from automation_core.reporting.events import ReportingEvent, build_timeline_events
 from automation_core.reporting.history import trend_points
 from automation_core.reporting.insights import ReportInsightConfig, build_enterprise_insights
+from automation_core.reporting.lineage import run_view_from_report
 from automation_core.reporting.models import Artifact, RunReport, TestCaseReport, to_jsonable
 from automation_core.reporting.platforms import classify_platform, platform_breakdown
 from automation_core.reporting.quality import QualityGate, QualityGateConfig, evaluate_quality_gates
@@ -114,6 +115,7 @@ def build_report_data(
             "trend_points": trend_points(history),
             "comparison": _history_comparison(summary, history),
         },
+        "lineage": _lineage_block(report),
         "artifacts": _artifact_index(report),
         "sharing": {
             "safe_share": redaction,
@@ -124,6 +126,21 @@ def build_report_data(
         payload, payload_redaction = redact_payload(payload)
         payload["sharing"]["safe_share"] = _merge_redaction(redaction, payload_redaction)
     return to_jsonable(payload)
+
+
+def _lineage_block(report: RunReport) -> dict[str, Any]:
+    """This run's test-content identity for cross-run lineage matching.
+
+    ``signature`` is the sorted set of fully-qualified test ids the run
+    executed. It is an internal key used to decide which runs share a lineage;
+    user-facing surfaces render friendly names, never these ids.
+    """
+    view = run_view_from_report(report)
+    return {
+        "signature": sorted(view.signature),
+        "size": view.size,
+        "pass_rate": view.pass_rate,
+    }
 
 
 def _default_export_links() -> dict[str, str]:

@@ -12,6 +12,7 @@ from automation_core.reporting.analysis import (
     flaky_analysis,
     summarize_run,
 )
+from automation_core.reporting.lineage import fq_id as _fq_id
 from automation_core.reporting.models import RunReport, TestCaseReport, to_jsonable
 from automation_core.reporting.platforms import platform_breakdown
 from automation_core.reporting.status import is_blocking_failure_status
@@ -142,6 +143,10 @@ def _failed_test_entry(test: TestCaseReport) -> dict[str, Any]:
 def _test_status_entry(test: TestCaseReport) -> dict[str, Any]:
     return {
         "identity": _test_identity(test),
+        # Stable fully-qualified id used for test-content lineage matching. Kept
+        # separate from ``identity`` (which drives failure-transition history) so
+        # neither changes the other's behaviour.
+        "fq_id": _fq_id(test),
         "test_id": test.id,
         "name": test.name,
         "full_name": test.full_name,

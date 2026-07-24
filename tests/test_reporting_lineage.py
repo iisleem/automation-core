@@ -201,3 +201,18 @@ def test_threshold_is_configurable():
 
 def test_default_threshold_constant():
     assert lineage.DEFAULT_LINEAGE_THRESHOLD == 0.6
+
+
+def test_run_view_from_history_entry_uses_stored_fq_id():
+    entry = {
+        "run_id": "r1",
+        "latest_run": "2026-07-01T00:00:00Z",
+        "test_statuses": [
+            {"fq_id": "auth::test_login", "status": "passed"},
+            {"fq_id": "auth::test_logout", "status": "failed"},
+            {"name": "test_fallback", "status": "passed"},  # no fq_id -> derived
+        ],
+    }
+    view = lineage.run_view_from_history_entry(entry)
+    assert view.signature == frozenset({"auth::test_login", "auth::test_logout", "test_fallback"})
+    assert view.pass_rate == round(2 / 3 * 100, 2)

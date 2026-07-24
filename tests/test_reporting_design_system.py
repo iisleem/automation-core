@@ -124,6 +124,17 @@ def test_report_data_exposes_platforms_health_and_adjusted_gate():
     assert 0 <= sidecar["health_score"] <= 100
 
 
+def test_report_data_exposes_lineage_signature():
+    sidecar = build_report_data(_mixed_report())
+    lineage = sidecar["lineage"]
+    # The signature is the sorted set of fully-qualified test ids in the run.
+    assert lineage["size"] == 3
+    assert len(lineage["signature"]) == 3
+    assert lineage["signature"] == sorted(lineage["signature"])
+    # Raw pass rate over the whole run (1 passed of 3).
+    assert lineage["pass_rate"] == round(1 / 3 * 100, 2)
+
+
 def test_matrix_uses_design_dimensions():
     sidecar = build_report_data(_mixed_report())
     # Default neutral matrix dimensions follow the design system.
