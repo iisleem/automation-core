@@ -203,6 +203,33 @@ def test_default_threshold_constant():
     assert lineage.DEFAULT_LINEAGE_THRESHOLD == 0.6
 
 
+def test_build_lineage_view_assembles_trend_diff_and_coverage():
+    prev = RunView("prev", "2026-07-01", _passed([f"t{i}" for i in range(10)]))  # 100% of 10
+    # current: same suite minus t9, plus a new t10, with one failure.
+    current_ids = [f"t{i}" for i in range(9)] + ["t10"]
+    current_statuses = _passed(current_ids)
+    current_statuses["t0"] = "failed"
+    current = RunView("cur", "2026-07-02", current_statuses)
+
+    vm = lineage.build_lineage_view(current, [prev])
+    assert vm["lineage_size"] == 2
+    assert [p["run_id"] for p in vm["trend"]] == ["prev", "cur"]
+    assert vm["previous_run_id"] == "prev"
+    # Diff vs previous: dropped t9, added t10.
+    assert vm["diff_vs_previous"]["added"] == ["t10"]
+    assert vm["diff_vs_previous"]["removed"] == ["t9"]
+    assert vm["coverage"]["partial"] is False  # same size as reference
+
+
+def test_build_lineage_view_first_run_has_no_previous():
+    current = RunView("only", "2026-07-01", _passed(["a", "b"]))
+    vm = lineage.build_lineage_view(current, [])
+    assert vm["lineage_size"] == 1
+    assert vm["previous_run_id"] is None
+    assert vm["diff_vs_previous"]["added"] == ["a", "b"]
+    assert vm["diff_vs_previous"]["removed"] == []
+
+
 def test_run_view_from_history_entry_uses_stored_fq_id():
     entry = {
         "run_id": "r1",

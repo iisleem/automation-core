@@ -1448,6 +1448,63 @@ function setupPage(){document.getElementById('mx-search').addEventListener('inpu
 # ============================ HISTORY ======================================
 
 
+def _lineage_card(report_data: dict[str, Any]) -> str:
+    """First-pass Test Lineage card: trend across runs of the same test set.
+
+    Functional and on-brand; the final visual treatment lands with the design
+    pass. Points are runs that share this run's test set (containment-based
+    lineage); the current run is the last point.
+    """
+    lineage = report_data.get("lineage") or {}
+    trend = lineage.get("trend") or []
+    diff = lineage.get("diff_vs_previous") or {}
+    coverage = lineage.get("coverage") or {}
+    size = int(lineage.get("lineage_size", len(trend)) or 0)
+
+    if not trend:
+        return ""
+
+    series = [float(p.get("pass_rate", 0)) for p in trend]
+    labels = [
+        f"{p.get('run_id', '')} · {_fmt_pct(p.get('pass_rate', 0))} pass"
+        + (f" · partial {int(p.get('coverage_ratio', 0))}%" if p.get("partial") else "")
+        for p in trend
+    ]
+    chart = _area_svg(series, "var(--accent)", w=640, h=150, labels=labels)
+
+    partial_badge = ""
+    if coverage.get("partial"):
+        partial_badge = (
+            '<span style="display:inline-block; margin-left:10px; padding:2px 10px; border-radius:100px; '
+            f'font-family:{MONO}; font-size:11px; font-weight:700; background:var(--flakySoft); color:var(--flaky);">'
+            f"partial · {int(coverage.get('covered', 0))}/{int(coverage.get('reference', 0))}</span>"
+        )
+
+    if lineage.get("previous_run_id"):
+        added = len(diff.get("added", []))
+        removed = len(diff.get("removed", []))
+        summary = (
+            f"Shares <strong>{int(diff.get('shared', 0))}</strong> of "
+            f"<strong>{int(diff.get('other_total', 0))}</strong> tests with the previous run · "
+            f'<strong style="color:var(--pass);">+{added} new</strong> · '
+            f'<strong style="color:var(--fail);">&minus;{removed} removed</strong>'
+        )
+    else:
+        summary = "First run of this test set — no earlier run to compare against yet."
+
+    note = (
+        f"{size} run(s) share this run's test set. Each point is one such run, oldest to newest; "
+        "the comparison stays apples-to-apples because it is the same tests over time."
+    )
+    return _card(
+        _title("Test Lineage")
+        + f'<div style="font-size:13px; color:var(--muted); margin:-4px 0 14px;">{summary}{partial_badge}</div>'
+        + chart
+        + f'<p style="font-size:11.5px; color:var(--faint); margin:12px 0 0;">{note}</p>',
+        extra="margin-bottom:20px;",
+    )
+
+
 def render_history(report_data: dict[str, Any]) -> str:
     trend_pts = report_data.get("history", {}).get("trend_points", [])
     health = report_data.get("run", {}).get("health", {})
@@ -1559,6 +1616,7 @@ def render_history(report_data: dict[str, Any]) -> str:
             "History",
             "Pass rate trend and run-over-run comparison, across all recorded runs.",
         )
+        + _lineage_card(report_data)
         + trend_card
         + f'<div style="display:flex; gap:14px; flex-wrap:wrap; margin-bottom:20px;">{chips}</div>'
         + table

@@ -133,6 +133,33 @@ def test_report_data_exposes_lineage_signature():
     assert lineage["signature"] == sorted(lineage["signature"])
     # Raw pass rate over the whole run (1 passed of 3).
     assert lineage["pass_rate"] == round(1 / 3 * 100, 2)
+    # The view-model the report renders from is present.
+    assert lineage["lineage_size"] == 1
+    assert lineage["previous_run_id"] is None
+    assert [point["run_id"] for point in lineage["trend"]] == ["run-mixed"]
+    assert lineage["coverage"]["partial"] is False
+
+
+def test_history_page_renders_lineage_card_across_runs(tmp_path):
+    root = tmp_path / "portfolio"
+    history_dir = tmp_path / "history"
+    # Two runs of the *same* test set (same fq ids) -> one lineage, a trend with
+    # a previous run and a "shares N of M" summary.
+    first = _mixed_report(run_id="run-a", generated_at=datetime(2026, 7, 15, tzinfo=UTC))
+    first_dir = prepare_timestamped_report_dir(root, run_id=first.run_id, generated_at=first.generated_at)
+    generate_reporting_product(first, first_dir, history_dir=history_dir)
+
+    second = _mixed_report(run_id="run-b", generated_at=datetime(2026, 7, 16, tzinfo=UTC))
+    second_dir = prepare_timestamped_report_dir(root, run_id=second.run_id, generated_at=second.generated_at)
+    generate_reporting_product(second, second_dir, history_dir=history_dir)
+
+    history_html = (second_dir / "history.html").read_text(encoding="utf-8")
+    assert "Test Lineage" in history_html
+    assert "tests with the previous run" in history_html
+    # The sidecar backs it with a two-run lineage.
+    sidecar = json.loads((second_dir / "report-data.json").read_text(encoding="utf-8"))
+    assert sidecar["lineage"]["lineage_size"] == 2
+    assert sidecar["lineage"]["previous_run_id"] == "run-a"
 
 
 def test_matrix_uses_design_dimensions():

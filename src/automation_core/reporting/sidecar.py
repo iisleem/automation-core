@@ -13,7 +13,11 @@ from automation_core.reporting.analysis import (
 from automation_core.reporting.events import ReportingEvent, build_timeline_events
 from automation_core.reporting.history import trend_points
 from automation_core.reporting.insights import ReportInsightConfig, build_enterprise_insights
-from automation_core.reporting.lineage import run_view_from_report
+from automation_core.reporting.lineage import (
+    build_lineage_view,
+    run_view_from_history_entry,
+    run_view_from_report,
+)
 from automation_core.reporting.models import Artifact, RunReport, TestCaseReport, to_jsonable
 from automation_core.reporting.platforms import classify_platform, platform_breakdown
 from automation_core.reporting.quality import QualityGate, QualityGateConfig, evaluate_quality_gates
@@ -115,7 +119,7 @@ def build_report_data(
             "trend_points": trend_points(history),
             "comparison": _history_comparison(summary, history),
         },
-        "lineage": _lineage_block(report),
+        "lineage": _lineage_block(report, history),
         "artifacts": _artifact_index(report),
         "sharing": {
             "safe_share": redaction,
@@ -128,18 +132,22 @@ def build_report_data(
     return to_jsonable(payload)
 
 
-def _lineage_block(report: RunReport) -> dict[str, Any]:
-    """This run's test-content identity for cross-run lineage matching.
+def _lineage_block(report: RunReport, history: list[dict[str, Any]]) -> dict[str, Any]:
+    """This run's test-content identity plus its cross-run lineage view-model.
 
-    ``signature`` is the sorted set of fully-qualified test ids the run
-    executed. It is an internal key used to decide which runs share a lineage;
-    user-facing surfaces render friendly names, never these ids.
+    ``signature`` is the sorted set of fully-qualified test ids the run executed
+    — an internal matching key; user-facing surfaces render friendly names. The
+    rest (trend, diff vs the previous run, coverage, lineage size) is assembled
+    from the retained history so the report can draw its lineage surfaces.
     """
-    view = run_view_from_report(report)
+    current = run_view_from_report(report)
+    history_views = [run_view_from_history_entry(entry) for entry in history if entry.get("run_id") != report.run_id]
+    view_model = build_lineage_view(current, history_views)
     return {
-        "signature": sorted(view.signature),
-        "size": view.size,
-        "pass_rate": view.pass_rate,
+        "signature": sorted(current.signature),
+        "size": current.size,
+        "pass_rate": current.pass_rate,
+        **view_model,
     }
 
 

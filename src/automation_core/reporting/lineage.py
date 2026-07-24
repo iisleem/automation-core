@@ -285,6 +285,51 @@ def pairwise_delta(base: RunView, other: RunView) -> dict[str, Any]:
     }
 
 
+def build_lineage_view(
+    current: RunView,
+    history_views: Sequence[RunView],
+    *,
+    threshold: float = DEFAULT_LINEAGE_THRESHOLD,
+) -> dict[str, Any]:
+    """Assemble the render-ready lineage view-model for ``current``.
+
+    Combines the current run's own view with prior runs (``history_views``) and
+    returns the lineage trend, the diff against the previous run in the same
+    lineage, coverage, and the lineage size — everything a report needs to draw
+    the lineage surfaces, with no rendering assumptions baked in.
+    """
+    by_id: dict[str, RunView] = {v.run_id: v for v in history_views}
+    by_id[current.run_id] = current  # the live run is authoritative
+    views = list(by_id.values())
+
+    members = lineage_members(current, views, threshold=threshold)
+    trend = trend_series(current, views, threshold=threshold)
+    cov = coverage(current, members)
+
+    member_ids = [m.run_id for m in members]
+    index = member_ids.index(current.run_id)
+    previous = members[index - 1] if index > 0 else None
+    if previous is not None:
+        diff = diff_tests(previous, current)
+    else:
+        diff = {
+            "shared": 0,
+            "base_total": 0,
+            "other_total": current.size,
+            "added": sorted(current.signature),
+            "removed": [],
+        }
+
+    return {
+        "trend": trend,
+        "lineage_size": len(members),
+        "coverage": cov,
+        "partial": cov["partial"],
+        "previous_run_id": previous.run_id if previous else None,
+        "diff_vs_previous": diff,
+    }
+
+
 def trend_series(
     target: RunView, views: Sequence[RunView], *, threshold: float = DEFAULT_LINEAGE_THRESHOLD
 ) -> list[dict[str, Any]]:
